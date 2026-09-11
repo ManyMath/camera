@@ -53,7 +53,7 @@ class NativeLibrary {
     // open() cannot find a file by name.
     try {
       final p = DynamicLibrary.process();
-      // Probe one expected symbol to confirm FFI can actually find it.
+      // Probe one expected symbol to confirm FFI can find it.
       p.lookup<NativeFunction<_EnumerateNative>>('camera_cli_enumerate');
       _opened = p;
     } on Object {

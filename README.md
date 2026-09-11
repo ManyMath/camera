@@ -1,9 +1,8 @@
 # camera
 
-Cross-platform camera capture for Dart and Flutter with the goal of no 
-additional system dependencies for users or devs to install.  The only build-
-time requirement beyond Dart/Flutter is Rust, and eventually that will be 
-obviated via precompiled binaries (TODO).
+Camera capture for Dart and Flutter across platforms. Native builds
+require Rust in addition to Dart or Flutter. Precompiled binaries are planned
+to remove that build requirement.
 
 This is a [melos](https://melos.invertase.dev) monorepo:
 

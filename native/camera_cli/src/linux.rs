@@ -94,7 +94,7 @@ const fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
 
 // The raw formats we can deliver. UVC webcams universally offer YUYV; we convert
 // it (and the closely-related UYVY) to BGRA in software. MJPEG would need a JPEG
-// decoder we deliberately do not depend on, so we never negotiate it for capture.
+// decoder we do not depend on, so we never negotiate it for capture.
 const V4L2_PIX_FMT_YUYV: u32 = fourcc(b'Y', b'U', b'Y', b'V');
 const V4L2_PIX_FMT_UYVY: u32 = fourcc(b'U', b'Y', b'V', b'Y');
 const V4L2_PIX_FMT_RGB24: u32 = fourcc(b'R', b'G', b'B', b'3');
@@ -102,7 +102,7 @@ const V4L2_PIX_FMT_BGR24: u32 = fourcc(b'B', b'G', b'R', b'3');
 const V4L2_PIX_FMT_MJPEG: u32 = fourcc(b'M', b'J', b'P', b'G');
 
 // Resolution we ask the driver for; it clamps to the nearest supported size and
-// reports back what we actually got, which is what every Frame then carries.
+// reports back what we got, which is what every Frame then carries.
 const PREFERRED_WIDTH: u32 = 1280;
 const PREFERRED_HEIGHT: u32 = 720;
 
@@ -310,7 +310,7 @@ fn c_field(bytes: &[u8]) -> String {
 }
 
 /// Does this capability bitset describe a single-plane video capture device we
-/// can actually stream from?
+/// can stream from?
 fn is_streaming_capture(cap: &v4l2_capability) -> bool {
     // Prefer device_caps (this specific node) when the driver advertises it.
     let caps = if cap.capabilities & V4L2_CAP_DEVICE_CAPS != 0 {
@@ -578,7 +578,7 @@ fn capture_loop(path: &CStr, sink: FrameSink, stop: &AtomicBool) -> Result<(), (
     let fd = Fd::open(path).ok_or(())?;
 
     // Negotiate a raw format we can convert. Ask for YUYV at our preferred size;
-    // the driver clamps the size and tells us the format it actually set.
+    // the driver clamps the size and tells us the format it set.
     let mut fmt: v4l2_format = unsafe { std::mem::zeroed() };
     fmt.type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.pix.width = PREFERRED_WIDTH;

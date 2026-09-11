@@ -106,7 +106,7 @@ fn enumerate_inner() -> Result<Vec<Device>> {
                         // Media Foundation does not surface a facing for USB/
                         // built-in webcams; report external.
                         facing: "external".to_string(),
-                        // Formats are intentionally not probed here: that would
+                        // Formats are not probed here: that would
                         // require activating (powering on) every camera just to
                         // list them. Capture negotiates RGB32 at open time and
                         // each Frame carries its own dimensions.

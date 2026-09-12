@@ -190,6 +190,9 @@ class FfiBackend implements CameraBackend {
   bool _available = false;
   bool _probed = false;
 
+  /// Cameras opened through this backend and not yet closed.
+  final Set<_FfiCamera> _cameras = {};
+
   @override
   String get name => 'ffi';
 
@@ -213,6 +216,11 @@ class FfiBackend implements CameraBackend {
 
   @override
   Future<void> dispose() async {
+    // Close each camera so its frame callback is released and its stream gets
+    // done; an open NativeCallable keeps the isolate alive.
+    for (final camera in _cameras.toList()) {
+      await camera.close();
+    }
     // Stop every native session synchronously. Mainly a safety net for shutdown
     // so the capture thread cannot call back into a torn-down isolate.
     _native?.closeAll();
@@ -260,7 +268,15 @@ class FfiBackend implements CameraBackend {
               pixelFormat: PixelFormat.bgra8888,
               frameRate: 0,
             );
-      return _FfiCamera(native, handle, device, format);
+      final camera = _FfiCamera(
+        native,
+        handle,
+        device,
+        format,
+        _cameras.remove,
+      );
+      _cameras.add(camera);
+      return camera;
     } finally {
       malloc.free(idPtr);
     }
@@ -317,10 +333,17 @@ CameraFacing _facingByName(String? name) {
 }
 
 class _FfiCamera implements Camera {
-  _FfiCamera(this._native, this._handle, this.device, this.format);
+  _FfiCamera(
+    this._native,
+    this._handle,
+    this.device,
+    this.format,
+    this._onClose,
+  );
 
   final _Native _native;
   final int _handle;
+  final void Function(_FfiCamera) _onClose;
   bool _closed = false;
 
   StreamController<Frame>? _controller;
@@ -416,6 +439,7 @@ class _FfiCamera implements Camera {
     if (_closed) return;
     _closed = true;
     _native.close(_handle);
+    _onClose(this);
     // Grab the controller before _teardown clears it, so listeners get done.
     final controller = _controller;
     _teardown();

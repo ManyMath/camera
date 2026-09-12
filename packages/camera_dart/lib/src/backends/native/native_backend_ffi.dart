@@ -348,7 +348,10 @@ class _FfiCamera implements Camera {
     final existing = _controller;
     if (existing != null) return existing.stream;
 
-    final controller = StreamController<Frame>(onCancel: _stopStream);
+    late final StreamController<Frame> controller;
+    controller = StreamController<Frame>(
+      onCancel: () => _stopStream(controller),
+    );
     _controller = controller;
 
     // The listener runs on this isolate's event loop; the native side invokes
@@ -394,8 +397,10 @@ class _FfiCamera implements Camera {
     );
   }
 
-  void _stopStream() {
-    if (_closed) return;
+  void _stopStream(StreamController<Frame> controller) {
+    // A stale controller (one whose start failed, then got its done event after
+    // frames() had already started a new stream) must not stop the new one.
+    if (_closed || !identical(controller, _controller)) return;
     _native.stopStream(_handle);
     _teardown();
   }

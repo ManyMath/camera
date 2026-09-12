@@ -411,10 +411,13 @@ class _FfiCamera implements Camera {
     if (_closed) return;
     _closed = true;
     _native.close(_handle);
-    _teardown();
+    // Grab the controller before _teardown clears it, so listeners get done.
     final controller = _controller;
+    _teardown();
     if (controller != null && !controller.isClosed) {
-      await controller.close();
+      // Not awaited: the done future only completes once the event reaches a
+      // listener, and a stream that was never listened to has none.
+      unawaited(controller.close());
     }
   }
 }

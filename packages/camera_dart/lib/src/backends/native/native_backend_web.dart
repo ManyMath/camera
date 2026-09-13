@@ -80,7 +80,13 @@ class WebBackend implements CameraBackend {
     final stream = await _openStream(devices, device);
     final camera = _WebCamera(device, stream, _cameras.remove);
     _cameras.add(camera);
-    await camera._start();
+    try {
+      await camera._start();
+    } catch (_) {
+      // Stop the tracks we just acquired rather than leaking a live camera.
+      await camera.close();
+      rethrow;
+    }
     return camera;
   }
 

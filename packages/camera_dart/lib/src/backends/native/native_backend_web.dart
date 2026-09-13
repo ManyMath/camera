@@ -22,6 +22,9 @@ CameraBackend? createNativeBackend() => WebBackend();
 
 /// Camera backend backed by the browser mediaDevices API.
 class WebBackend implements CameraBackend {
+  /// Cameras opened through this backend and not yet closed.
+  final Set<_WebCamera> _cameras = {};
+
   @override
   String get name => 'web';
 
@@ -32,7 +35,11 @@ class WebBackend implements CameraBackend {
   int get priority => 50;
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    for (final camera in _cameras.toList()) {
+      await camera.close();
+    }
+  }
 
   @override
   Future<List<CameraDevice>> enumerate() async {
@@ -71,7 +78,8 @@ class WebBackend implements CameraBackend {
   Future<Camera> open(CameraDevice device) async {
     final devices = web.window.navigator.mediaDevices;
     final stream = await _openStream(devices, device);
-    final camera = _WebCamera(device, stream);
+    final camera = _WebCamera(device, stream, _cameras.remove);
+    _cameras.add(camera);
     await camera._start();
     return camera;
   }
@@ -111,11 +119,12 @@ class WebBackend implements CameraBackend {
 }
 
 class _WebCamera implements Camera {
-  _WebCamera(this.device, this._stream)
+  _WebCamera(this.device, this._stream, this._onClose)
     : _video = web.HTMLVideoElement(),
       _canvas = web.HTMLCanvasElement();
 
   final web.MediaStream _stream;
+  final void Function(_WebCamera) _onClose;
   final web.HTMLVideoElement _video;
   final web.HTMLCanvasElement _canvas;
   web.CanvasRenderingContext2D? _ctx;
@@ -221,6 +230,7 @@ class _WebCamera implements Camera {
       track.stop();
     }
     _video.srcObject = null;
+    _onClose(this);
     if (controller != null && !controller.isClosed) {
       // Not awaited: the done future only completes once the event reaches a
       // listener, and a stream that was never listened to has none.

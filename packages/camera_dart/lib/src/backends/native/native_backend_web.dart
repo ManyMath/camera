@@ -122,6 +122,7 @@ class _WebCamera implements Camera {
 
   bool _closed = false;
   StreamController<Frame>? _controller;
+  int? _frameRequest;
 
   @override
   final CameraDevice device;
@@ -152,7 +153,11 @@ class _WebCamera implements Camera {
     final existing = _controller;
     if (existing != null) return existing.stream;
 
-    final controller = StreamController<Frame>(onCancel: close);
+    // Cancelling stops the frame loop; the camera stays open until close().
+    late final StreamController<Frame> controller;
+    controller = StreamController<Frame>(
+      onCancel: () => _stopFrames(controller),
+    );
     _controller = controller;
     _scheduleFrame();
     return controller.stream;
@@ -161,12 +166,25 @@ class _WebCamera implements Camera {
   void _scheduleFrame() {
     // requestVideoFrameCallback fires once per decoded frame (supported by
     // Chrome, Brave, and Safari 16+); the callback gets (now, metadata).
-    _video.requestVideoFrameCallback(
+    _frameRequest = _video.requestVideoFrameCallback(
       ((JSNumber _, JSObject _) => _tick()).toJS,
     );
   }
 
+  /// Ends the frame loop for [controller], if it is still the current one.
+  ///
+  /// The pending frame callback is cancelled too: left queued, it would see a
+  /// controller from a later frames() call and run a second loop beside it.
+  void _stopFrames(StreamController<Frame> controller) {
+    if (!identical(controller, _controller)) return;
+    _controller = null;
+    final request = _frameRequest;
+    _frameRequest = null;
+    if (request != null) _video.cancelVideoFrameCallback(request);
+  }
+
   void _tick() {
+    _frameRequest = null;
     final controller = _controller;
     if (_closed || controller == null || controller.isClosed) return;
     final w = _video.videoWidth;
@@ -197,14 +215,16 @@ class _WebCamera implements Camera {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    final controller = _controller;
+    if (controller != null) _stopFrames(controller);
     for (final track in _stream.getTracks().toDart) {
       track.stop();
     }
     _video.srcObject = null;
-    final controller = _controller;
-    _controller = null;
     if (controller != null && !controller.isClosed) {
-      await controller.close();
+      // Not awaited: the done future only completes once the event reaches a
+      // listener, and a stream that was never listened to has none.
+      unawaited(controller.close());
     }
   }
 }

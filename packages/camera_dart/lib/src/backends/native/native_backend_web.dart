@@ -182,7 +182,7 @@ class _WebCamera implements Camera {
     // requestVideoFrameCallback fires once per decoded frame (supported by
     // Chrome, Brave, and Safari 16+); the callback gets (now, metadata).
     _frameRequest = _video.requestVideoFrameCallback(
-      ((JSNumber _, JSObject _) => _tick()).toJS,
+      ((JSNumber now, JSObject _) => _tick(now.toDartDouble)).toJS,
     );
   }
 
@@ -198,7 +198,8 @@ class _WebCamera implements Camera {
     if (request != null) _video.cancelVideoFrameCallback(request);
   }
 
-  void _tick() {
+  /// [nowMs] is the callback's `now`, a monotonic DOMHighResTimeStamp in ms.
+  void _tick(double nowMs) {
     _frameRequest = null;
     final controller = _controller;
     if (_closed || controller == null || controller.isClosed) return;
@@ -219,7 +220,7 @@ class _WebCamera implements Camera {
           width: w,
           height: h,
           pixelFormat: PixelFormat.rgba8888,
-          timestamp: Duration.zero,
+          timestamp: Duration(microseconds: (nowMs * 1000).round()),
         ),
       );
     }

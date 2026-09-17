@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
 Cross-platform camera access for Flutter with no system dependencies.
                        DESC
-  s.homepage         = 'https://github.com/ManyMath/camera_control'
+  s.homepage         = 'https://github.com/ManyMath/camera'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'sneurlax' => 'sneurlax@gmail.com' }
 

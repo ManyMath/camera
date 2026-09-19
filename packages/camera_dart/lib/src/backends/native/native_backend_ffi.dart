@@ -367,16 +367,23 @@ class _FfiCamera implements Camera {
     if (_closed) {
       throw const CaptureException('Camera is closed');
     }
-    // One active stream per camera; re-listening reuses the controller.
+    // One active stream per camera: until it is cancelled, frames() returns
+    // the same single-subscription stream.
     final existing = _controller;
     if (existing != null) return existing.stream;
 
     late final StreamController<Frame> controller;
     controller = StreamController<Frame>(
+      onListen: () => _startStream(controller),
       onCancel: () => _stopStream(controller),
     );
     _controller = controller;
+    return controller.stream;
+  }
 
+  void _startStream(StreamController<Frame> controller) {
+    // Closed (or superseded) before anyone listened: nothing to start.
+    if (_closed || !identical(controller, _controller)) return;
     // The listener runs on this isolate's event loop; the native side invokes
     // it from the capture thread.
     final callback = NativeCallable<_FrameCallbackNative>.listener(_onFrame);
@@ -387,7 +394,6 @@ class _FfiCamera implements Camera {
       controller.addError(CaptureException('Native start_stream failed ($rc)'));
       controller.close();
     }
-    return controller.stream;
   }
 
   void _onFrame(

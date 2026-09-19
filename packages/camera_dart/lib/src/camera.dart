@@ -25,7 +25,9 @@ abstract class Camera {
   /// A continuous stream of frames.
   ///
   /// Starts capture on first listen and stops when the subscription is
-  /// cancelled. Frames may be dropped if the listener is slow.
+  /// cancelled. Frames that arrive while the subscription is paused (as in a
+  /// slow `await for` body) are dropped, so a slow listener sees recent
+  /// frames rather than a growing backlog.
   Stream<Frame> frames();
 
   /// Stop capture and release native resources. Idempotent.

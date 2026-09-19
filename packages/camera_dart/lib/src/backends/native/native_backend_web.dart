@@ -210,6 +210,12 @@ class _WebCamera implements Camera {
     _frameRequest = null;
     final controller = _controller;
     if (_closed || controller == null || controller.isClosed) return;
+    // Skip the readback while the listener is paused; buffering every frame
+    // until it resumes would grow without bound.
+    if (controller.isPaused) {
+      _scheduleFrame();
+      return;
+    }
     final w = _video.videoWidth;
     final h = _video.videoHeight;
     final ctx = _ctx;

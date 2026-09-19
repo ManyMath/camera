@@ -399,8 +399,9 @@ class _FfiCamera implements Camera {
     int timestampUs,
   ) {
     final controller = _controller;
-    if (controller == null || controller.isClosed) {
-      // No consumer: free the buffer and drop the frame.
+    if (controller == null || controller.isClosed || controller.isPaused) {
+      // No consumer, or a paused one: free the buffer and drop the frame
+      // rather than queueing every frame until the listener catches up.
       _native.frameFree(data, length);
       return;
     }

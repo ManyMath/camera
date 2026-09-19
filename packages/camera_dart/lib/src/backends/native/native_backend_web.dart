@@ -156,7 +156,14 @@ class _WebCamera implements Camera {
       ..muted = true
       ..srcObject = _stream;
     await _video.play().toDart;
-    _ctx = _canvas.getContext('2d') as web.CanvasRenderingContext2D?;
+    // Every frame is read back with getImageData, which is much cheaper from a
+    // canvas that keeps its pixels in CPU memory.
+    _ctx =
+        _canvas.getContext(
+              '2d',
+              web.CanvasRenderingContext2DSettings(willReadFrequently: true),
+            )
+            as web.CanvasRenderingContext2D?;
   }
 
   @override
@@ -207,9 +214,12 @@ class _WebCamera implements Camera {
     final h = _video.videoHeight;
     final ctx = _ctx;
     if (ctx != null && w > 0 && h > 0) {
-      _canvas
-        ..width = w
-        ..height = h;
+      // Assigning width/height reallocates the canvas even when unchanged.
+      if (_canvas.width != w || _canvas.height != h) {
+        _canvas
+          ..width = w
+          ..height = h;
+      }
       ctx.drawImage(_video, 0, 0);
       final image = ctx.getImageData(0, 0, w, h);
       controller.add(

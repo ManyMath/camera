@@ -65,12 +65,18 @@ pub fn devices_to_json(devices: &[Device]) -> String {
             if j > 0 {
                 out.push(',');
             }
+            // NaN and infinity have no JSON spelling; report them as unknown (0).
+            let frame_rate = if f.frame_rate.is_finite() {
+                f.frame_rate
+            } else {
+                0.0
+            };
             out.push_str(&format!(
                 "{{\"width\":{},\"height\":{},\"pixel_format\":\"{}\",\"frame_rate\":{}}}",
                 f.width,
                 f.height,
                 f.pixel_format.as_str(),
-                f.frame_rate,
+                frame_rate,
             ));
         }
         out.push_str("]}");
@@ -124,5 +130,21 @@ mod tests {
         assert!(json.contains("\"facing\":\"front\""));
         assert!(json.contains("\"pixel_format\":\"bgra8888\""));
         assert!(json.contains("\"width\":1280"));
+    }
+
+    #[test]
+    fn encodes_a_non_finite_frame_rate_as_zero() {
+        let devices = vec![Device {
+            id: "cam0".into(),
+            name: "Cam".into(),
+            facing: "external".into(),
+            formats: vec![Format {
+                width: 640,
+                height: 480,
+                pixel_format: PixelFormat::Bgra8888,
+                frame_rate: f64::NAN,
+            }],
+        }];
+        assert!(devices_to_json(&devices).contains("\"frame_rate\":0}"));
     }
 }

@@ -178,10 +178,12 @@ class _WebCamera implements Camera {
     // Cancelling stops the frame loop; the camera stays open until close().
     late final StreamController<Frame> controller;
     controller = StreamController<Frame>(
+      onListen: () {
+        if (identical(controller, _controller)) _scheduleFrame();
+      },
       onCancel: () => _stopFrames(controller),
     );
     _controller = controller;
-    _scheduleFrame();
     return controller.stream;
   }
 

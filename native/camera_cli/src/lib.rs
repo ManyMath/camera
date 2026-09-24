@@ -52,7 +52,9 @@ pub(crate) struct Frame {
 ///
 /// `data` points at a heap buffer of `length` bytes that the callee now owns
 /// and must free with `camera_cli_frame_free(data, length)`. Called on the
-/// platform capture thread, so it must be cheap and thread-safe.
+/// platform capture thread, so it must be cheap and thread-safe. It must not
+/// call `camera_cli_stop_stream`, `camera_cli_close` or `camera_cli_close_all`:
+/// those wait for the capture thread, which is the one running the callback.
 pub type FrameCallback = extern "C" fn(
     data: *mut u8,
     length: i32,

@@ -31,6 +31,8 @@ use crate::{Device, Frame, FrameSink, FrameSource, PixelFormat};
 
 /// MF_SOURCE_READER_FIRST_VIDEO_STREAM: read from the first video stream.
 const FIRST_VIDEO_STREAM: u32 = 0xFFFF_FFFC;
+/// MF_SOURCE_READERF_ERROR: the reader hit an error and must not be read again.
+const READERF_ERROR: u32 = 0x0001;
 /// MF_SOURCE_READERF_ENDOFSTREAM: the read returned because the stream ended.
 const READERF_ENDOFSTREAM: u32 = 0x0002;
 /// MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED: the output media type changed.
@@ -234,7 +236,13 @@ fn capture_loop(link: &str, sink: FrameSink, stop: &AtomicBool) -> Result<()> {
                 Some(&mut sample),
             )?;
 
-            if stream_flags & READERF_ENDOFSTREAM != 0 {
+            // ReadSample blocks until the next frame, so stop may have been
+            // requested meanwhile; drop that frame instead of emitting it.
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+            // After an error the reader must not be called again.
+            if stream_flags & (READERF_ERROR | READERF_ENDOFSTREAM) != 0 {
                 break;
             }
             // The output type was renegotiated (e.g. the camera or its decoder

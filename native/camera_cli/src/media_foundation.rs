@@ -58,14 +58,15 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     std::thread::spawn(move || {
-        unsafe {
-            // S_FALSE (already initialized) is fine; only a hard failure matters,
-            // and even then MF objects are free-threaded.
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        }
+        // The thread is fresh, so this only fails on a hard error; the MF calls
+        // in `f` then fail and report it. Only a successful init is balanced
+        // by CoUninitialize.
+        let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         ensure_startup();
         let out = f();
-        unsafe { CoUninitialize() };
+        if com.is_ok() {
+            unsafe { CoUninitialize() };
+        }
         out
     })
     .join()
@@ -184,14 +185,15 @@ impl FrameSource for MfSession {
         self.stop = stop.clone();
         let link = self.symbolic_link.clone();
         self.thread = Some(std::thread::spawn(move || {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
+            // As in on_com_thread: balance only a successful init.
+            let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             ensure_startup();
             // Errors here just mean no frames are delivered; the consumer sees an
             // empty stream rather than a crash.
             let _ = capture_loop(&link, sink, &stop);
-            unsafe { CoUninitialize() };
+            if com.is_ok() {
+                unsafe { CoUninitialize() };
+            }
         }));
     }
 

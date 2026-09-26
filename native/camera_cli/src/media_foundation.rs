@@ -33,6 +33,8 @@ use crate::{Device, Frame, FrameSink, FrameSource, PixelFormat};
 const FIRST_VIDEO_STREAM: u32 = 0xFFFF_FFFC;
 /// MF_SOURCE_READERF_ENDOFSTREAM: the read returned because the stream ended.
 const READERF_ENDOFSTREAM: u32 = 0x0002;
+/// MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED: the output media type changed.
+const READERF_CURRENTMEDIATYPECHANGED: u32 = 0x0020;
 
 /// Start Media Foundation once for the whole process. MFStartup is global and
 /// ref-counted; we never call MFShutdown -- the library lives for the process.
@@ -214,17 +216,7 @@ fn capture_loop(link: &str, sink: FrameSink, stop: &AtomicBool) -> Result<()> {
         media_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
         media_type.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
         reader.SetCurrentMediaType(FIRST_VIDEO_STREAM, None, &media_type)?;
-
-        let current = reader.GetCurrentMediaType(FIRST_VIDEO_STREAM)?;
-        let frame_size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
-        let width = (frame_size >> 32) as u32;
-        let height = (frame_size & 0xFFFF_FFFF) as u32;
-        // A negative stride means the rows are stored bottom-up; we flip them so
-        // the delivered buffer is always top-down BGRA.
-        let stride = current
-            .GetUINT32(&MF_MT_DEFAULT_STRIDE)
-            .map(|s| s as i32)
-            .unwrap_or((width as i32) * 4);
+        let (mut width, mut height, mut stride) = current_geometry(&reader)?;
 
         loop {
             if stop.load(Ordering::SeqCst) {
@@ -245,6 +237,11 @@ fn capture_loop(link: &str, sink: FrameSink, stop: &AtomicBool) -> Result<()> {
             if stream_flags & READERF_ENDOFSTREAM != 0 {
                 break;
             }
+            // The output type was renegotiated (e.g. the camera or its decoder
+            // changed resolution); re-read it before handling this sample.
+            if stream_flags & READERF_CURRENTMEDIATYPECHANGED != 0 {
+                (width, height, stride) = current_geometry(&reader)?;
+            }
             let Some(sample) = sample else { continue };
             if let Some(frame) = extract_frame(&sample, width, height, stride, timestamp) {
                 sink.emit(frame);
@@ -252,6 +249,21 @@ fn capture_loop(link: &str, sink: FrameSink, stop: &AtomicBool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Width, height and signed default stride of the reader's current output type.
+unsafe fn current_geometry(reader: &IMFSourceReader) -> Result<(u32, u32, i32)> {
+    let current = reader.GetCurrentMediaType(FIRST_VIDEO_STREAM)?;
+    let frame_size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
+    let width = (frame_size >> 32) as u32;
+    let height = (frame_size & 0xFFFF_FFFF) as u32;
+    // A negative stride means the rows are stored bottom-up; we flip them so
+    // the delivered buffer is always top-down BGRA.
+    let stride = current
+        .GetUINT32(&MF_MT_DEFAULT_STRIDE)
+        .map(|s| s as i32)
+        .unwrap_or((width as i32) * 4);
+    Ok((width, height, stride))
 }
 
 /// Create the IMFMediaSource for a device symbolic link.

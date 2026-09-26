@@ -302,13 +302,21 @@ unsafe fn extract_frame(
     let src_stride = stride.unsigned_abs() as usize;
     let bottom_up = stride < 0;
 
+    // The last row only needs `row_len` bytes, not a whole stride. A stride
+    // shorter than a row or a short buffer means the geometry does not match
+    // this sample, so drop it rather than emit a blank frame.
+    let need = src_stride * h.saturating_sub(1) + row_len;
+    if ptr.is_null() || row_len == 0 || h == 0 || src_stride < row_len || (cur_len as usize) < need
+    {
+        let _ = buffer.Unlock();
+        return None;
+    }
+
     let mut data = vec![0u8; row_len * h];
-    if !ptr.is_null() && cur_len as usize >= src_stride * h {
-        for row in 0..h {
-            let src_row = if bottom_up { h - 1 - row } else { row };
-            let src = ptr.add(src_row * src_stride);
-            std::ptr::copy_nonoverlapping(src, data.as_mut_ptr().add(row * row_len), row_len);
-        }
+    for row in 0..h {
+        let src_row = if bottom_up { h - 1 - row } else { row };
+        let src = ptr.add(src_row * src_stride);
+        std::ptr::copy_nonoverlapping(src, data.as_mut_ptr().add(row * row_len), row_len);
     }
     let _ = buffer.Unlock();
 

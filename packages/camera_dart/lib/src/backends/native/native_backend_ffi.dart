@@ -104,7 +104,8 @@ typedef _CloseNative = Void Function(Int32 handle);
 typedef _CloseDart = void Function(int handle);
 
 // FrameCallback: invoked per frame on the capture thread. `data` is a heap
-// buffer the callee owns and must free with camera_cli_frame_free.
+// buffer the callee owns and must free with camera_cli_frame_free. A call with
+// null `data` and pixel format _streamEnded means capture ended on its own.
 typedef _FrameCallbackNative =
     Void Function(
       Pointer<Uint8> data,
@@ -114,6 +115,8 @@ typedef _FrameCallbackNative =
       Int32 pixelFormat,
       Int64 timestampUs,
     );
+
+const _streamEnded = -1;
 
 // camera_cli_start_stream(handle, callback) -> 0 ok, < 0 error.
 typedef _StartStreamNative =
@@ -405,6 +408,18 @@ class _FfiCamera implements Camera {
     int timestampUs,
   ) {
     final controller = _controller;
+    if (data == nullptr && pixelFormat == _streamEnded) {
+      // The device went away or capture could not start. Error out and close,
+      // so captureFrame() fails instead of waiting forever; onCancel then
+      // stops the native stream and releases the callback.
+      if (controller != null && !controller.isClosed) {
+        controller.addError(
+          const CaptureException('Capture ended: device lost or failed'),
+        );
+        controller.close();
+      }
+      return;
+    }
     if (controller == null || controller.isClosed || controller.isPaused) {
       // No consumer, or a paused one: free the buffer and drop the frame
       // rather than queueing every frame until the listener catches up.

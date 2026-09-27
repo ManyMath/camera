@@ -55,6 +55,11 @@ pub(crate) struct Frame {
 /// platform capture thread, so it must be cheap and thread-safe. It must not
 /// call `camera_cli_stop_stream`, `camera_cli_close` or `camera_cli_close_all`:
 /// those wait for the capture thread, which is the one running the callback.
+///
+/// If capture ends without a stop request (the device went away, or capture
+/// could not start after `camera_cli_start_stream` returned), the callback is
+/// invoked once more with null `data`, zero length/size and `pixel_format`
+/// [`STREAM_ENDED`]; no frame follows until the stream is started again.
 pub type FrameCallback = extern "C" fn(
     data: *mut u8,
     length: i32,
@@ -63,6 +68,9 @@ pub type FrameCallback = extern "C" fn(
     pixel_format: i32,
     timestamp_us: i64,
 );
+
+/// `pixel_format` of the callback that reports the stream ending on its own.
+pub const STREAM_ENDED: i32 = -1;
 
 /// A wrapper making a `FrameCallback` Send so it can move to the capture thread.
 #[derive(Clone, Copy)]
@@ -87,6 +95,13 @@ impl FrameSink {
             frame.pixel_format as i32,
             frame.timestamp_us,
         );
+    }
+
+    /// Report that capture ended without a stop request. Call at most once per
+    /// start, from the thread that would otherwise have emitted the next frame.
+    #[allow(dead_code)] // Not every backend can detect a lost device yet.
+    pub fn end(&self) {
+        (self.0)(std::ptr::null_mut(), 0, 0, 0, STREAM_ENDED, 0);
     }
 }
 

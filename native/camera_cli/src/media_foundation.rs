@@ -214,7 +214,15 @@ impl Drop for MfSession {
 fn capture_loop(link: &str, sink: FrameSink, stop: &AtomicBool) -> Result<()> {
     unsafe {
         let source = create_source(link)?;
-        let reader = create_reader(&source)?;
+        // Once built, the reader shuts the source down when it is released. If
+        // it cannot be built, shut the source down here so the device is freed.
+        let reader = match create_reader(&source) {
+            Ok(reader) => reader,
+            Err(e) => {
+                let _ = source.Shutdown();
+                return Err(e);
+            }
+        };
 
         // Request 32-bit RGB (BGRA byte order). The reader inserts a video
         // processor to convert from the camera's native format as needed.

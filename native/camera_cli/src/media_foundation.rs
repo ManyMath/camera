@@ -11,7 +11,7 @@
 //! happens on threads this module owns so the apartment model is controlled.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use windows::core::{Result, PCWSTR};
@@ -40,11 +40,13 @@ const READERF_CURRENTMEDIATYPECHANGED: u32 = 0x0020;
 
 /// Start Media Foundation once for the whole process. MFStartup is global and
 /// ref-counted; we never call MFShutdown -- the library lives for the process.
+/// A failed start is not latched: the next call tries again.
 fn ensure_startup() {
-    static START: Once = Once::new();
-    START.call_once(|| unsafe {
-        let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
-    });
+    static STARTED: Mutex<bool> = Mutex::new(false);
+    let mut started = STARTED.lock().unwrap_or_else(|e| e.into_inner());
+    if !*started {
+        *started = unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }.is_ok();
+    }
 }
 
 /// Run `f` on a fresh thread inside a multithreaded COM apartment.

@@ -1,7 +1,7 @@
 # camera_flutter
 
 Flutter integration for [`camera_dart`](../camera_dart): cross-platform
-camera capture with ther goal of no system dependencies for users or devs.
+camera capture with the goal of no system dependencies for users or devs.
 
 This package builds the shared `camera_cli` Rust crate automatically (via 
 [cargokit](https://github.com/ManyMath/cargokit)) and bundles it with your app,

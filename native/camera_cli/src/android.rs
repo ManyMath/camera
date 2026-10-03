@@ -19,7 +19,7 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{Device, Frame, FrameSink, FrameSource, PixelFormat};
+use crate::{Device, Format, Frame, FrameSink, FrameSource, PixelFormat};
 
 // --- Opaque NDK handle types -------------------------------------------------
 
@@ -283,9 +283,15 @@ pub fn enumerate() -> Vec<Device> {
                 id: id.clone(),
                 name: format!("Camera {id}"),
                 facing,
-                // Frame dimensions are carried per-frame; we deliver BGRA at the
-                // fixed capture size.
-                formats: Vec::new(),
+                // Every camera is captured at the same fixed size and
+                // converted to BGRA; the frame rate is nominal (the preview
+                // template picks the actual AE range).
+                formats: vec![Format {
+                    width: CAPTURE_WIDTH,
+                    height: CAPTURE_HEIGHT,
+                    pixel_format: PixelFormat::Bgra8888,
+                    frame_rate: 30.0,
+                }],
             });
         }
         ACameraManager_deleteCameraIdList(list);

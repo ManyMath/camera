@@ -326,8 +326,8 @@ unsafe fn lens_facing(manager: *mut ACameraManager, id: *const c_char) -> String
     facing
 }
 
-/// Shared frame sink, guarded so teardown can synchronize with an in-flight
-/// image callback (clearing the sink under the same lock the callback takes).
+/// Shared frame sink. The image callback holds this lock for its whole body,
+/// so taking it in stop()/drop() waits out any callback in progress.
 type SharedSink = Arc<Mutex<Option<FrameSink>>>;
 
 /// A running Camera2 capture session.
@@ -346,7 +346,8 @@ struct CameraSession {
     listener_context: *mut ListenerContext,
     sink: SharedSink,
     started: bool,
-    stopped: Arc<AtomicBool>,
+    // Set (under the sink lock) just before the reader is deleted.
+    closing: Arc<AtomicBool>,
 }
 
 // SAFETY: the NDK handles are created on open() and only touched again on
@@ -356,8 +357,6 @@ unsafe impl Send for CameraSession {}
 
 impl FrameSource for CameraSession {
     fn start(&mut self, sink: FrameSink) {
-        // Clear any stop from a prior cycle so the listener emits again.
-        self.stopped.store(false, Ordering::SeqCst);
         *self.sink.lock().unwrap() = Some(sink);
         if self.started {
             return;
@@ -376,14 +375,13 @@ impl FrameSource for CameraSession {
     }
 
     fn stop(&mut self) {
-        self.stopped.store(true, Ordering::SeqCst);
         unsafe {
             if !self.session.is_null() {
                 ACameraCaptureSession_stopRepeating(self.session);
             }
         }
-        // Clear the sink under the lock: any callback already past the stopped
-        // check drops its frame instead of emitting into a torn-down isolate.
+        // Clear the sink under the lock: this waits for a callback that is
+        // mid-emit, and every later callback sees None and drops its frame.
         *self.sink.lock().unwrap() = None;
         self.started = false;
     }
@@ -395,6 +393,14 @@ impl Drop for CameraSession {
         unsafe {
             if !self.session.is_null() {
                 ACameraCaptureSession_close(self.session);
+            }
+            // Closing the device waits for in-flight captures, so no more
+            // buffers are queued to the reader after this.
+            if !self.device.is_null() {
+                ACameraDevice_close(self.device);
+            }
+            if !self.manager.is_null() {
+                ACameraManager_delete(self.manager);
             }
             if !self.request.is_null() {
                 ACaptureRequest_free(self.request);
@@ -408,16 +414,19 @@ impl Drop for CameraSession {
             if !self.output.is_null() {
                 ACaptureSessionOutput_free(self.output);
             }
-            // Delete the reader first: after this no on_image_available can
-            // fire, so the listener and its context are safe to free.
+            // AImageReader_delete holds the reader's lock while it joins the
+            // callback thread, and acquiring or deleting an image needs that
+            // lock too. Set `closing` under the sink lock (waiting out any
+            // running callback) so callbacks still queued return without
+            // touching the reader.
+            {
+                let _guard = self.sink.lock().unwrap();
+                self.closing.store(true, Ordering::SeqCst);
+            }
+            // Once this returns the callback thread has exited, so the
+            // listener and its context are safe to free.
             if !self.reader.is_null() {
                 AImageReader_delete(self.reader);
-            }
-            if !self.device.is_null() {
-                ACameraDevice_close(self.device);
-            }
-            if !self.manager.is_null() {
-                ACameraManager_delete(self.manager);
             }
             if !self.listener.is_null() {
                 drop(Box::from_raw(self.listener));
@@ -429,10 +438,10 @@ impl Drop for CameraSession {
     }
 }
 
-/// Context handed to the image listener: the shared sink plus the stop flag.
+/// Context handed to the image listener: the shared sink plus the teardown flag.
 struct ListenerContext {
     sink: SharedSink,
-    stopped: Arc<AtomicBool>,
+    closing: Arc<AtomicBool>,
 }
 
 extern "C" fn on_image_available(ctx: *mut c_void, reader: *mut AImageReader) {
@@ -441,20 +450,21 @@ extern "C" fn on_image_available(ctx: *mut c_void, reader: *mut AImageReader) {
     }
     // The context is a ListenerContext owned by the session; borrow it.
     let context = unsafe { &*(ctx as *const ListenerContext) };
+    // Hold the lock for the whole callback so stop() and drop() never overlap
+    // a callback that is emitting or using the reader.
+    let guard = context.sink.lock().unwrap();
+    if context.closing.load(Ordering::SeqCst) {
+        // The reader is being deleted; acquiring from it now would deadlock.
+        return;
+    }
     unsafe {
         let mut image: *mut AImage = std::ptr::null_mut();
         if AImageReader_acquireLatestImage(reader, &mut image) != AMEDIA_OK || image.is_null() {
             return;
         }
-        if context.stopped.load(Ordering::SeqCst) {
-            AImage_delete(image);
-            return;
-        }
-        if let Some(frame) = image_to_bgra(image) {
-            // Hold the lock across emit so stop() (which clears the sink under
-            // the same lock) can never let a callback fire after teardown.
-            let guard = context.sink.lock().unwrap();
-            if let Some(sink) = guard.as_ref() {
+        // While stopped (no sink) the image is released without converting.
+        if let Some(sink) = guard.as_ref() {
+            if let Some(frame) = image_to_bgra(image) {
                 sink.emit(frame);
             }
         }
@@ -575,7 +585,7 @@ pub fn open(id: &str) -> Result<Box<dyn FrameSource>, ()> {
             listener_context: std::ptr::null_mut(),
             sink: Arc::new(Mutex::new(None)),
             started: false,
-            stopped: Arc::new(AtomicBool::new(false)),
+            closing: Arc::new(AtomicBool::new(false)),
         };
 
         let mut device_cbs = ACameraDevice_StateCallbacks {
@@ -603,11 +613,11 @@ pub fn open(id: &str) -> Result<Box<dyn FrameSource>, ()> {
             return Err(());
         }
 
-        // Listener context (sink + stop flag), reclaimed in Drop via
+        // Listener context (sink + teardown flag), reclaimed in Drop via
         // `listener_context` after the reader is deleted.
         sess.listener_context = Box::into_raw(Box::new(ListenerContext {
             sink: sess.sink.clone(),
-            stopped: sess.stopped.clone(),
+            closing: sess.closing.clone(),
         }));
         sess.listener = Box::into_raw(Box::new(AImageReader_ImageListener {
             context: sess.listener_context as *mut c_void,

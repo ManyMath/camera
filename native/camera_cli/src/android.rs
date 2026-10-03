@@ -506,10 +506,11 @@ unsafe fn image_to_bgra(image: *mut AImage) -> Option<Frame> {
             let uu = *u.data.add(uvi) as i32 - 128;
             let vv = *v.data.add(uvi) as i32 - 128;
 
-            let c = yy - 16;
-            let r = (298 * c + 409 * vv + 128) >> 8;
-            let g = (298 * c - 100 * uu - 208 * vv + 128) >> 8;
-            let b = (298 * c + 516 * uu + 128) >> 8;
+            // AImageReader tags YUV_420_888 as JFIF: full-range BT.601, so Y
+            // and chroma span the whole 0..255 range (no 16..235 offset).
+            let r = yy + ((359 * vv + 128) >> 8);
+            let g = yy - ((88 * uu + 183 * vv + 128) >> 8);
+            let b = yy + ((454 * uu + 128) >> 8);
 
             let o = (row * w + col) * 4;
             // BGRA byte order to match PixelFormat::Bgra8888.

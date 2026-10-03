@@ -361,16 +361,17 @@ impl FrameSource for CameraSession {
         if self.started {
             return;
         }
-        self.started = true;
         unsafe {
             let mut seq_id: c_int = 0;
-            ACameraCaptureSession_setRepeatingRequest(
+            // Only latch `started` on success so a later start() retries
+            // instead of silently doing nothing.
+            self.started = ACameraCaptureSession_setRepeatingRequest(
                 self.session,
                 std::ptr::null_mut(),
                 1,
                 &mut self.request,
                 &mut seq_id,
-            );
+            ) == ACAMERA_OK;
         }
     }
 

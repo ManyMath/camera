@@ -251,6 +251,17 @@ impl AvSession {
 impl FrameSource for AvSession {
     fn start(&mut self, sink: FrameSink) {
         self.delegate.set_sink(Some(sink));
+        // stop() detaches the delegate and stops the session; undo both so a
+        // stream restarted on the same handle gets frames again. Harmless on
+        // the first start, when both are already in place.
+        unsafe {
+            let proto = ProtocolObject::from_ref(&*self.delegate);
+            self.output
+                .setSampleBufferDelegate_queue(Some(proto), Some(&self.queue));
+            if !self.session.isRunning() {
+                self.session.startRunning();
+            }
+        }
     }
 
     fn stop(&mut self) {

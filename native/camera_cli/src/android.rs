@@ -108,8 +108,27 @@ struct AImageReader_ImageListener {
     on_image_available: extern "C" fn(*mut c_void, *mut AImageReader),
 }
 
-extern "C" fn on_disconnected(_ctx: *mut c_void, _dev: *mut ACameraDevice) {}
-extern "C" fn on_error(_ctx: *mut c_void, _dev: *mut ACameraDevice, _err: c_int) {}
+// Both mean the device is gone for good and has to be reopened.
+extern "C" fn on_disconnected(ctx: *mut c_void, _dev: *mut ACameraDevice) {
+    on_device_lost(ctx);
+}
+extern "C" fn on_error(ctx: *mut c_void, _dev: *mut ACameraDevice, _err: c_int) {
+    on_device_lost(ctx);
+}
+
+fn on_device_lost(ctx: *mut c_void) {
+    if ctx.is_null() {
+        return;
+    }
+    // The context is the session's ListenerContext, freed only after the
+    // device is closed, which ends these callbacks.
+    let context = unsafe { &*(ctx as *const ListenerContext) };
+    let mut guard = context.sink.lock().unwrap();
+    context.lost.store(true, Ordering::SeqCst);
+    if let Some(sink) = guard.take() {
+        sink.end();
+    }
+}
 extern "C" fn on_session_noop(_ctx: *mut c_void, _s: *mut ACameraCaptureSession) {}
 
 // --- NDK entry points --------------------------------------------------------
@@ -357,6 +376,8 @@ struct CameraSession {
     started: bool,
     // Set (under the sink lock) just before the reader is deleted.
     closing: Arc<AtomicBool>,
+    // Set by the device callbacks once the camera is disconnected or errored.
+    lost: Arc<AtomicBool>,
 }
 
 // SAFETY: the NDK handles are only used through &mut self (open, start, stop,
@@ -367,7 +388,15 @@ unsafe impl Send for CameraSession {}
 
 impl FrameSource for CameraSession {
     fn start(&mut self, sink: FrameSink) {
-        *self.sink.lock().unwrap() = Some(sink);
+        {
+            let mut guard = self.sink.lock().unwrap();
+            if self.lost.load(Ordering::SeqCst) {
+                *guard = None;
+                sink.end();
+                return;
+            }
+            *guard = Some(sink);
+        }
         if self.started {
             return;
         }
@@ -382,6 +411,13 @@ impl FrameSource for CameraSession {
                 &mut self.request,
                 &mut seq_id,
             ) == ACAMERA_OK;
+        }
+        if !self.started {
+            // No frames will come; say so. The device callbacks may have
+            // already taken the sink and reported it.
+            if let Some(sink) = self.sink.lock().unwrap().take() {
+                sink.end();
+            }
         }
     }
 
@@ -449,10 +485,12 @@ impl Drop for CameraSession {
     }
 }
 
-/// Context handed to the image listener: the shared sink plus the teardown flag.
+/// Context handed to the image listener and the device callbacks: the shared
+/// sink plus the teardown and device-lost flags.
 struct ListenerContext {
     sink: SharedSink,
     closing: Arc<AtomicBool>,
+    lost: Arc<AtomicBool>,
 }
 
 extern "C" fn on_image_available(ctx: *mut c_void, reader: *mut AImageReader) {
@@ -598,10 +636,20 @@ pub fn open(id: &str) -> Result<Box<dyn FrameSource>, ()> {
             sink: Arc::new(Mutex::new(None)),
             started: false,
             closing: Arc::new(AtomicBool::new(false)),
+            lost: Arc::new(AtomicBool::new(false)),
         };
 
+        // Listener context (sink + flags), shared by the device callbacks and
+        // the image listener, and reclaimed in Drop via `listener_context`
+        // after both the device and the reader are gone.
+        sess.listener_context = Box::into_raw(Box::new(ListenerContext {
+            sink: sess.sink.clone(),
+            closing: sess.closing.clone(),
+            lost: sess.lost.clone(),
+        }));
+
         let mut device_cbs = ACameraDevice_StateCallbacks {
-            context: std::ptr::null_mut(),
+            context: sess.listener_context as *mut c_void,
             on_disconnected,
             on_error,
         };
@@ -625,12 +673,6 @@ pub fn open(id: &str) -> Result<Box<dyn FrameSource>, ()> {
             return Err(());
         }
 
-        // Listener context (sink + teardown flag), reclaimed in Drop via
-        // `listener_context` after the reader is deleted.
-        sess.listener_context = Box::into_raw(Box::new(ListenerContext {
-            sink: sess.sink.clone(),
-            closing: sess.closing.clone(),
-        }));
         sess.listener = Box::into_raw(Box::new(AImageReader_ImageListener {
             context: sess.listener_context as *mut c_void,
             on_image_available,

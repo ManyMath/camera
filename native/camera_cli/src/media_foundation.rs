@@ -190,9 +190,12 @@ impl FrameSource for MfSession {
             // As in on_com_thread: balance only a successful init.
             let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             ensure_startup();
-            // Errors here just mean no frames are delivered; the consumer sees an
-            // empty stream rather than a crash.
             let _ = capture_loop(&link, sink, &stop);
+            // Leaving without a stop request means setup failed or the device
+            // stopped delivering; tell the consumer rather than go quiet.
+            if !stop.load(Ordering::SeqCst) {
+                sink.end();
+            }
             if com.is_ok() {
                 unsafe { CoUninitialize() };
             }

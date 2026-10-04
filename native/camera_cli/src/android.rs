@@ -5,9 +5,10 @@
 //! handful of NDK entry points we use directly rather than pulling in a bindings
 //! crate, mirroring how the macOS backend talks to AVFoundation.
 //!
-//! enumerate() lists camera ids. open() opens the device, wires an
-//! AImageReader (YUV_420_888) to a repeating preview request, and on each
-//! delivered image converts YUV -> BGRA and pushes it to the FrameSink.
+//! enumerate() lists camera ids. open() opens the device and wires an
+//! AImageReader (YUV_420_888) into a capture session with a preview request;
+//! start() submits that request as a repeating one, and each delivered image is
+//! converted YUV -> BGRA and pushed to the FrameSink.
 //!
 //! Note: capture requires the CAMERA runtime permission, which can only be
 //! granted from the Java/Kotlin layer (the NDK has no permission-request API).
@@ -237,8 +238,8 @@ extern "C" {
     ) -> media_status_t;
 }
 
-// ACameraMetadata_const_entry layout. The data field is a union of pointers; we
-// only read u8 / i32 entries here, so a pointer-sized payload is sufficient.
+// ACameraMetadata_const_entry layout. The data field is a union of pointers, so
+// a single pointer field has the same layout; we only read the u8 lens facing.
 #[repr(C)]
 struct ACameraMetadata_const_entry {
     tag: u32,
@@ -252,9 +253,10 @@ const ACAMERA_LENS_FACING: u32 = (8u32 << 16) + 5;
 const ACAMERA_LENS_FACING_FRONT: u8 = 0;
 const ACAMERA_LENS_FACING_BACK: u8 = 1;
 
-// Preview/capture resolution. 640x480 YUV_420_888 is universally supported
-// (including the emulator's virtual camera); negotiating the device's best size
-// is a future refinement.
+// Preview/capture resolution. 640x480 YUV_420_888 is a mandatory size for FULL
+// and LIMITED cameras and works on the emulator's virtual camera, but LEGACY
+// and external cameras are not guaranteed to offer it. Negotiating a size from
+// ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS is a future refinement.
 const CAPTURE_WIDTH: c_int = 640;
 const CAPTURE_HEIGHT: c_int = 480;
 
@@ -346,7 +348,8 @@ struct CameraSession {
     output: *mut ACaptureSessionOutput,
     container: *mut ACaptureSessionOutputContainer,
     reader: *mut AImageReader,
-    // Boxed so the address handed to the NDK as the listener stays stable.
+    // The boxed listener struct. The NDK copies it on set, so it is the
+    // context below, not this struct, that must outlive the reader.
     listener: *mut AImageReader_ImageListener,
     // The listener's context (a boxed ListenerContext); reclaimed on drop.
     listener_context: *mut ListenerContext,
@@ -356,9 +359,10 @@ struct CameraSession {
     closing: Arc<AtomicBool>,
 }
 
-// SAFETY: the NDK handles are created on open() and only touched again on
-// stop()/drop(), both serialized by the crate's session table. Frame delivery
-// runs on the NDK's callback thread and only touches the thread-safe SharedSink.
+// SAFETY: the NDK handles are only used through &mut self (open, start, stop,
+// drop), which the crate's session table serializes. Frame delivery runs on the
+// reader's callback thread and touches only the reader it is handed and the
+// ListenerContext, synchronized with teardown through the sink lock.
 unsafe impl Send for CameraSession {}
 
 impl FrameSource for CameraSession {

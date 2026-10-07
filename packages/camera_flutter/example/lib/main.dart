@@ -45,8 +45,9 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     // Stop capture before the app exits so the native capture thread cannot
     // deliver a frame into a torn-down isolate. onExitRequested awaits the
-    // async stop before allowing exit; the plugin's applicationWillTerminate
-    // is the synchronous belt-and-suspenders for hard quits.
+    // async stop before allowing exit; on Apple platforms the Runner's
+    // AppDelegate calls camera_cli_close_all from applicationWillTerminate as
+    // the synchronous belt-and-suspenders for hard quits.
     _lifecycle = AppLifecycleListener(
       onExitRequested: () async {
         await _stop();

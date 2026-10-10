@@ -5,6 +5,7 @@
 //! AVCaptureDeviceDiscoverySession; capture pushes each frame from an
 //! AVCaptureVideoDataOutput delegate straight to the registered FrameSink.
 
+use std::ffi::{c_char, c_void, CStr};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -14,9 +15,8 @@ use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_av_foundation::{
     AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceDiscoverySession,
     AVCaptureDeviceInput, AVCaptureDevicePosition, AVCaptureDeviceType,
-    AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternal, AVCaptureOutput,
-    AVCaptureSession, AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
-    AVMediaTypeVideo,
+    AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureOutput, AVCaptureSession,
+    AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
 };
 use objc2_core_media::{CMSampleBuffer, CMVideoFormatDescriptionGetDimensions};
 use objc2_core_video::{
@@ -30,11 +30,40 @@ use crate::{Device, Format, Frame, FrameSink, FrameSource, PixelFormat};
 
 /// The device types we discover: built-in cameras plus external webcams.
 fn device_types() -> Retained<NSArray<AVCaptureDeviceType>> {
+    let mut types = vec![unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera }];
+    types.extend(external_device_type());
+    NSArray::from_slice(&types)
+}
+
+/// The device type for external (USB/UVC) cameras, if this OS has one.
+///
+/// AVCaptureDeviceTypeExternal is new in macOS 14 / iOS 17, and Rust cannot
+/// weak-link an extern static: naming it directly makes dyld refuse to load
+/// the library on anything older. Look it up at runtime instead. Older macOS
+/// calls it AVCaptureDeviceTypeExternalUnknown (10.15+, deprecated in 14);
+/// older iOS has no external camera type, so it is skipped there.
+fn external_device_type() -> Option<&'static AVCaptureDeviceType> {
+    let external = av_constant(c"AVCaptureDeviceTypeExternal");
+    #[cfg(target_os = "macos")]
+    let external = external.or_else(|| av_constant(c"AVCaptureDeviceTypeExternalUnknown"));
+    external
+}
+
+/// Resolve an AVFoundation `NSString *const` constant by symbol name.
+fn av_constant(name: &CStr) -> Option<&'static NSString> {
+    extern "C" {
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+    // RTLD_DEFAULT on Apple platforms: search every loaded image.
+    const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+    // SAFETY: dlsym returns the address of the exported pointer variable (or
+    // null); the NSString it points at is a constant that lives forever.
     unsafe {
-        NSArray::from_slice(&[
-            AVCaptureDeviceTypeBuiltInWideAngleCamera,
-            AVCaptureDeviceTypeExternal,
-        ])
+        let sym = dlsym(RTLD_DEFAULT, name.as_ptr()) as *const *const NSString;
+        if sym.is_null() {
+            return None;
+        }
+        (*sym).as_ref()
     }
 }
 

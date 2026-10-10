@@ -216,15 +216,19 @@ unsafe fn extract_frame(sample_buffer: &CMSampleBuffer) -> Option<Frame> {
     let height = CVPixelBufferGetHeight(&pixel_buffer);
     let bytes_per_row = CVPixelBufferGetBytesPerRow(&pixel_buffer);
     let base = CVPixelBufferGetBaseAddress(&pixel_buffer);
+    if base.is_null() {
+        // No pixels to copy: drop the frame rather than emit an empty buffer
+        // that still claims width x height.
+        CVPixelBufferUnlockBaseAddress(&pixel_buffer, CVPixelBufferLockFlags::ReadOnly);
+        return None;
+    }
 
     let mut bytes = Vec::with_capacity(width * 4 * height);
-    if !base.is_null() {
-        let src = base as *const u8;
-        let row_len = width * 4;
-        for row in 0..height {
-            let row_ptr = src.add(row * bytes_per_row);
-            bytes.extend_from_slice(std::slice::from_raw_parts(row_ptr, row_len));
-        }
+    let src = base as *const u8;
+    let row_len = width * 4;
+    for row in 0..height {
+        let row_ptr = src.add(row * bytes_per_row);
+        bytes.extend_from_slice(std::slice::from_raw_parts(row_ptr, row_len));
     }
     CVPixelBufferUnlockBaseAddress(&pixel_buffer, CVPixelBufferLockFlags::ReadOnly);
 

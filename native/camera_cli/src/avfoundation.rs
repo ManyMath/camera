@@ -18,7 +18,7 @@ use objc2_av_foundation::{
     AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureOutput, AVCaptureSession,
     AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
 };
-use objc2_core_media::{CMSampleBuffer, CMVideoFormatDescriptionGetDimensions};
+use objc2_core_media::{CMSampleBuffer, CMTimeFlags, CMVideoFormatDescriptionGetDimensions};
 use objc2_core_video::{
     kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA, CVPixelBufferGetBaseAddress,
     CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetWidth,
@@ -233,10 +233,21 @@ unsafe fn extract_frame(sample_buffer: &CMSampleBuffer) -> Option<Frame> {
         width: width as i32,
         height: height as i32,
         pixel_format: PixelFormat::Bgra8888,
-        // A monotonic per-frame timestamp can be added from the sample buffer's
-        // presentation time later; for now leave it zero.
-        timestamp_us: 0,
+        timestamp_us: timestamp_us(sample_buffer),
     })
+}
+
+/// The sample buffer's presentation time in microseconds, or 0 if invalid.
+///
+/// Capture buffers are stamped on the host clock, which is monotonic. The
+/// math is widened to i128 because `value * 1_000_000` overflows i64 for a
+/// nanosecond timescale after a few hours of uptime.
+unsafe fn timestamp_us(sample_buffer: &CMSampleBuffer) -> i64 {
+    let pts = sample_buffer.presentation_time_stamp();
+    if !pts.flags.contains(CMTimeFlags::Valid) || pts.timescale <= 0 {
+        return 0;
+    }
+    (pts.value as i128 * 1_000_000 / pts.timescale as i128) as i64
 }
 
 /// A running capture session that pushes frames to the delegate's sink.

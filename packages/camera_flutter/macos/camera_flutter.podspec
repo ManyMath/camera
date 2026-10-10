@@ -32,8 +32,9 @@ Cross-platform camera access for Flutter with no system dependencies.
   # when cargo links, so the frameworks must be named here for the final link.
   s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'Foundation'
 
-  # objc2 (used by the native crate) requires macOS 10.13+.
-  s.platform = :osx, '10.13'
+  # The native crate enumerates cameras with AVCaptureDeviceDiscoverySession
+  # and AVCaptureDeviceTypeBuiltInWideAngleCamera, both macOS 10.15+.
+  s.platform = :osx, '10.15'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'OTHER_LDFLAGS' => '-force_load ${BUILT_PRODUCTS_DIR}/libcamera_cli.a',

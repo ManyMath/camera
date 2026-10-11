@@ -279,24 +279,26 @@ struct AvSession {
 unsafe impl Send for AvSession {}
 
 impl AvSession {
-    /// Tear down so that no FrameSink callback is in flight, or can be enqueued,
-    /// after this returns. Required before the Dart callback is closed: emit is
-    /// asynchronous, so clearing the sink alone is not enough -- a frame already
-    /// dispatched to the capture queue could still call a deleted callback.
-    /// Must not be called from the capture queue itself (the barrier would
-    /// deadlock); teardown runs on the caller's thread.
+    /// Tear down so that no FrameSink callback is in flight, or can start,
+    /// after this returns. Required before the Dart callback is closed. Step 2
+    /// is what guarantees it: the delegate holds the sink lock across emit, so
+    /// clearing the sink waits out an in-flight frame, and any callback that
+    /// runs afterwards finds no sink. Must not be called from the capture
+    /// queue itself (the sink lock and the barrier would deadlock); teardown
+    /// runs on the caller's thread.
     fn drain_and_stop(&mut self) {
         unsafe {
             // 1. Detach the delegate: no new sample-buffer dispatches.
             self.output.setSampleBufferDelegate_queue(None, None);
         }
-        // 2. Clear the sink: any block already past the delegate check drops.
+        // 2. Clear the sink under its lock: waits for an in-flight emit, and
+        //    a block that runs later returns without emitting.
         self.delegate.set_sink(None);
-        // 3. Barrier: when this empty sync block returns, every block already
-        //    enqueued on the serial capture queue has finished, so no emit is
-        //    in flight.
+        // 3. Barrier: flush blocks already enqueued on the serial capture
+        //    queue. Not needed for the guarantee above; it leaves the queue
+        //    idle before the session stops.
         self.queue.exec_sync(|| {});
-        // 4. Stop the pipeline; no callback can run after this.
+        // 4. Stop the pipeline. start() reattaches the delegate and restarts.
         unsafe { self.session.stopRunning() };
     }
 }
@@ -361,7 +363,9 @@ pub fn open(id: &str) -> Result<Box<dyn FrameSource>, ()> {
         session.addOutput(&output);
         orient_connection(&output, &device);
         session.commitConfiguration();
-        // startRunning blocks; we are off the main thread, which is correct.
+        // startRunning blocks until capture starts, on the caller's thread.
+        // Under Flutter that can be the main thread (iOS runs Dart on the
+        // platform thread), which Apple advises against blocking.
         session.startRunning();
 
         Ok(Box::new(AvSession {

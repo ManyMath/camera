@@ -137,13 +137,15 @@ struct v4l2_pix_format {
 }
 
 // struct v4l2_format: a type tag followed by a 200-byte union. The union has
-// arms containing pointers (v4l2_window), so the kernel aligns it to 8 bytes --
-// hence the 4 bytes of padding after `type_`, putting `pix` at offset 8 and the
-// whole struct at 208 bytes. We only ever touch the v4l2_pix_format arm and pad
-// out the rest of the union.
+// arms containing pointers (v4l2_window), so it takes pointer alignment. On
+// 64-bit targets that means 4 bytes of padding after `type_`, putting `pix` at
+// offset 8 and the whole struct at 208 bytes; on 32-bit targets there is no
+// padding and the struct is 204 bytes. We only ever touch the v4l2_pix_format
+// arm and pad out the rest of the union.
 #[repr(C)]
 struct v4l2_format {
     type_: u32,
+    #[cfg(target_pointer_width = "64")]
     _align_pad: u32,
     pix: v4l2_pix_format,
     _union_pad: [u8; 200 - size_of::<v4l2_pix_format>()],
@@ -851,20 +853,31 @@ mod tests {
     use super::*;
 
     // The ioctl request codes are size-derived; if a struct layout drifts from
-    // the kernel's these change, so pin the well-known values from videodev2.h.
-    // The kernel ioctl request codes (from videodev2.h on a 64-bit arch). These
-    // encode the struct sizes, so a layout drift trips these before it can
-    // silently corrupt a real ioctl.
+    // the kernel's these change, so pin the well-known values from videodev2.h
+    // before a drift can silently corrupt a real ioctl. v4l2_format and
+    // v4l2_buffer hold pointer-sized members, so their codes differ between
+    // 64-bit and 32-bit targets (the 32-bit values assume a 32-bit time_t).
     #[test]
     fn ioctl_codes_match_kernel() {
         assert_eq!(VIDIOC_QUERYCAP, 0x8068_5600);
         assert_eq!(VIDIOC_ENUM_FMT, 0xc040_5602);
-        assert_eq!(VIDIOC_G_FMT, 0xc0d0_5604);
-        assert_eq!(VIDIOC_S_FMT, 0xc0d0_5605);
         assert_eq!(VIDIOC_REQBUFS, 0xc014_5608);
-        assert_eq!(VIDIOC_QUERYBUF, 0xc058_5609);
-        assert_eq!(VIDIOC_QBUF, 0xc058_560f);
-        assert_eq!(VIDIOC_DQBUF, 0xc058_5611);
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(VIDIOC_G_FMT, 0xc0d0_5604);
+            assert_eq!(VIDIOC_S_FMT, 0xc0d0_5605);
+            assert_eq!(VIDIOC_QUERYBUF, 0xc058_5609);
+            assert_eq!(VIDIOC_QBUF, 0xc058_560f);
+            assert_eq!(VIDIOC_DQBUF, 0xc058_5611);
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(VIDIOC_G_FMT, 0xc0cc_5604);
+            assert_eq!(VIDIOC_S_FMT, 0xc0cc_5605);
+            assert_eq!(VIDIOC_QUERYBUF, 0xc044_5609);
+            assert_eq!(VIDIOC_QBUF, 0xc044_560f);
+            assert_eq!(VIDIOC_DQBUF, 0xc044_5611);
+        }
         assert_eq!(VIDIOC_STREAMON, 0x4004_5612);
         assert_eq!(VIDIOC_STREAMOFF, 0x4004_5613);
         assert_eq!(VIDIOC_ENUM_FRAMESIZES, 0xc02c_564a);
@@ -873,11 +886,16 @@ mod tests {
 
     #[test]
     fn struct_sizes_match_kernel() {
+        #[cfg(target_pointer_width = "64")]
+        let (fmt_size, pix_offset, buf_size) = (208, 8, 88);
+        #[cfg(target_pointer_width = "32")]
+        let (fmt_size, pix_offset, buf_size) = (204, 4, 68);
         assert_eq!(size_of::<v4l2_capability>(), 104);
         assert_eq!(size_of::<v4l2_pix_format>(), 48);
-        assert_eq!(size_of::<v4l2_format>(), 208);
+        assert_eq!(size_of::<v4l2_format>(), fmt_size);
+        assert_eq!(std::mem::offset_of!(v4l2_format, pix), pix_offset);
         assert_eq!(size_of::<v4l2_requestbuffers>(), 20);
-        assert_eq!(size_of::<v4l2_buffer>(), 88);
+        assert_eq!(size_of::<v4l2_buffer>(), buf_size);
         assert_eq!(size_of::<v4l2_fmtdesc>(), 64);
         assert_eq!(size_of::<v4l2_frmsizeenum>(), 44);
         assert_eq!(size_of::<v4l2_frmivalenum>(), 52);

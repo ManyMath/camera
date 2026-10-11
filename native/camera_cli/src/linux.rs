@@ -689,6 +689,11 @@ fn capture_loop(path: &CStr, sink: FrameSink, stop: &AtomicBool) -> Result<(), (
             }
             break;
         }
+        // An unplugged device (or a queue in error) reports POLLERR/POLLHUP
+        // immediately and never POLLIN, so waiting for POLLIN would spin.
+        if pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            break;
+        }
         if pr == 0 || pfd.revents & libc::POLLIN == 0 {
             continue;
         }

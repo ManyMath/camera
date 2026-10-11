@@ -137,6 +137,15 @@ unsafe fn device_to_descriptor(device: &AVCaptureDevice) -> Device {
                 max_fps = r;
             }
         }
+        // Native formats that differ only in pixel format (e.g. 420v vs 420f)
+        // all deliver BGRA here, so keep one entry per size at its best rate.
+        let same_size = |f: &&mut Format| f.width == dims.width && f.height == dims.height;
+        if let Some(existing) = formats.iter_mut().find(same_size) {
+            if max_fps > existing.frame_rate {
+                existing.frame_rate = max_fps;
+            }
+            continue;
+        }
         formats.push(Format {
             width: dims.width,
             height: dims.height,

@@ -274,7 +274,8 @@ struct v4l2_frmivalenum {
 /// ioctl that retries on EINTR. Returns the raw return value (< 0 is an error).
 unsafe fn xioctl(fd: i32, request: u32, arg: *mut c_void) -> i32 {
     loop {
-        let r = libc::ioctl(fd, request as libc::c_ulong, arg);
+        // The request parameter is c_ulong on glibc but c_int on musl.
+        let r = libc::ioctl(fd, request as _, arg);
         if r == -1 && *libc::__errno_location() == libc::EINTR {
             continue;
         }

@@ -10,8 +10,9 @@
 //!
 //! enumerate() scans `/dev/video*`, keeping the nodes that report a single-plane
 //! VIDEO_CAPTURE capability (this drops the metadata-only nodes a UVC webcam also
-//! exposes), and lists each one's discrete formats. open() validates the node;
-//! the capture pipeline itself is built on a worker thread when streaming starts
+//! exposes) and offer a pixel format we can convert, and lists each one's sizes
+//! as the BGRA formats it delivers. open() validates the node; the capture
+//! pipeline itself is built on a worker thread when streaming starts
 //! (S_FMT -> REQBUFS/MMAP -> STREAMON -> DQBUF/QBUF loop), converting each frame
 //! to BGRA and pushing it to the FrameSink, just like the other backends.
 
@@ -99,7 +100,6 @@ const V4L2_PIX_FMT_YUYV: u32 = fourcc(b'Y', b'U', b'Y', b'V');
 const V4L2_PIX_FMT_UYVY: u32 = fourcc(b'U', b'Y', b'V', b'Y');
 const V4L2_PIX_FMT_RGB24: u32 = fourcc(b'R', b'G', b'B', b'3');
 const V4L2_PIX_FMT_BGR24: u32 = fourcc(b'B', b'G', b'R', b'3');
-const V4L2_PIX_FMT_MJPEG: u32 = fourcc(b'M', b'J', b'P', b'G');
 
 // Resolution we ask the driver for; it clamps to the nearest supported size and
 // reports back what we got, which is what every Frame then carries.
@@ -368,6 +368,16 @@ fn probe_device(path: &std::path::Path) -> Option<Device> {
     if !is_streaming_capture(&cap) {
         return None;
     }
+    // A node offering nothing we can convert (an IR camera's GREY, an
+    // MJPEG-only webcam) would open fine but never deliver a frame. Decide on
+    // the FOURCCs alone, so a driver without ENUM_FRAMESIZES is still listed.
+    let fourccs: Vec<u32> = enumerate_fourccs(fd.0)
+        .into_iter()
+        .filter(|&f| is_convertible(f))
+        .collect();
+    if fourccs.is_empty() {
+        return None;
+    }
 
     let name = {
         let card = c_field(&cap.card);
@@ -383,18 +393,13 @@ fn probe_device(path: &std::path::Path) -> Option<Device> {
         name,
         // V4L2 does not report a lens facing for USB/built-in webcams.
         facing: "external".to_string(),
-        formats: enumerate_formats(fd.0),
+        formats: enumerate_formats(fd.0, &fourccs),
     })
 }
 
-/// Enumerate a device's discrete (pixel format, size, fps) combinations.
-///
-/// Bounded so a camera advertising a large matrix cannot produce an unwieldy
-/// device list; the per-frame dimensions remain authoritative regardless.
-fn enumerate_formats(fd: i32) -> Vec<Format> {
-    const MAX_FORMATS: usize = 64;
+/// The FOURCCs a capture node offers, in driver order.
+fn enumerate_fourccs(fd: i32) -> Vec<u32> {
     let mut out = Vec::new();
-
     let mut fmt_index = 0u32;
     loop {
         let mut fmt: v4l2_fmtdesc = unsafe { std::mem::zeroed() };
@@ -404,20 +409,40 @@ fn enumerate_formats(fd: i32) -> Vec<Format> {
             break;
         }
         fmt_index += 1;
+        out.push(fmt.pixelformat);
+    }
+    out
+}
 
-        let Some(pixel_format) = map_pixel_format(fmt.pixelformat) else {
-            continue;
-        };
+/// Enumerate the discrete (size, fps) combinations of the given FOURCCs. Every
+/// frame is converted to BGRA, so that is the pixel format each entry reports.
+///
+/// Bounded so a camera advertising a large matrix cannot produce an unwieldy
+/// device list; the per-frame dimensions remain authoritative regardless.
+fn enumerate_formats(fd: i32, fourccs: &[u32]) -> Vec<Format> {
+    const MAX_FORMATS: usize = 64;
+    let mut out: Vec<Format> = Vec::new();
 
-        for (w, h) in enumerate_sizes(fd, fmt.pixelformat) {
+    for &fourcc in fourccs {
+        for (w, h) in enumerate_sizes(fd, fourcc) {
+            let (width, height) = (w as i32, h as i32);
+            let frame_rate = best_frame_rate(fd, fourcc, w, h);
+            // The same size from two source FOURCCs is one BGRA format.
+            if let Some(f) = out
+                .iter_mut()
+                .find(|f| f.width == width && f.height == height)
+            {
+                f.frame_rate = f.frame_rate.max(frame_rate);
+                continue;
+            }
             if out.len() >= MAX_FORMATS {
                 return out;
             }
             out.push(Format {
-                width: w as i32,
-                height: h as i32,
-                pixel_format,
-                frame_rate: best_frame_rate(fd, fmt.pixelformat, w, h),
+                width,
+                height,
+                pixel_format: PixelFormat::Bgra8888,
+                frame_rate,
             });
         }
     }
@@ -488,16 +513,6 @@ fn best_frame_rate(fd: i32, pixel_format: u32, width: u32, height: u32) -> f64 {
         }
     }
     best
-}
-
-/// Map a V4L2 FOURCC to our wire PixelFormat, or None if we do not expose it.
-fn map_pixel_format(fourcc: u32) -> Option<PixelFormat> {
-    match fourcc {
-        V4L2_PIX_FMT_YUYV | V4L2_PIX_FMT_UYVY => Some(PixelFormat::Yuyv422),
-        V4L2_PIX_FMT_RGB24 | V4L2_PIX_FMT_BGR24 => Some(PixelFormat::Rgba8888),
-        V4L2_PIX_FMT_MJPEG => Some(PixelFormat::Mjpeg),
-        _ => None,
-    }
 }
 
 // --- capture -----------------------------------------------------------------

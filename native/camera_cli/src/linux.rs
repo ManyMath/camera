@@ -2,7 +2,7 @@
 //!
 //! Honors the crate's no-system-deps rule: we do not link `libv4l`, GStreamer,
 //! or any `-dev` package. The only thing we use is `libc` (the syscalls
-//! open/close/ioctl/mmap/poll, all glibc-resident) and the `/dev/video*` device
+//! open/close/ioctl/mmap/poll, all in the C library) and the `/dev/video*` device
 //! nodes a default install already ships. The handful of V4L2 structs, ioctl
 //! request codes, and FOURCC constants we need are declared here rather than
 //! pulled from `linux/videodev2.h`, mirroring how the macOS backend declares the
@@ -94,9 +94,9 @@ const fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
     (a as u32) | ((b as u32) << 8) | ((c as u32) << 16) | ((d as u32) << 24)
 }
 
-// The raw formats we can deliver. UVC webcams universally offer YUYV; we convert
-// it (and the closely-related UYVY) to BGRA in software. MJPEG would need a JPEG
-// decoder we do not depend on, so we never negotiate it for capture.
+// The raw formats we can deliver. Most UVC webcams offer YUYV; we convert it,
+// the closely-related UYVY, and packed 24-bit RGB/BGR to BGRA in software. MJPEG
+// would need a JPEG decoder we do not depend on, so we never negotiate it.
 const V4L2_PIX_FMT_YUYV: u32 = fourcc(b'Y', b'U', b'Y', b'V');
 const V4L2_PIX_FMT_UYVY: u32 = fourcc(b'U', b'Y', b'V', b'Y');
 const V4L2_PIX_FMT_RGB24: u32 = fourcc(b'R', b'G', b'B', b'3');
@@ -357,7 +357,8 @@ pub fn enumerate() -> Vec<Device> {
     out
 }
 
-/// Query one node; return a Device if it is a streaming capture device.
+/// Query one node; return a Device if it is a streaming capture device offering
+/// a format we can convert.
 fn probe_device(path: &std::path::Path) -> Option<Device> {
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let fd = Fd::open(&c_path)?;
@@ -622,9 +623,7 @@ fn capture_loop(path: &CStr, sink: FrameSink, stop: &AtomicBool) -> Result<(), (
     let bytesperline = fmt.pix.bytesperline.max(packed_row) as usize;
     // We can only deliver formats we know how to turn into BGRA. MJPEG and other
     // compressed/exotic formats are rejected rather than emitting garbage.
-    if convert_to_bgra(pixfmt, &[], width, height, bytesperline).is_none()
-        && !is_convertible(pixfmt)
-    {
+    if !is_convertible(pixfmt) {
         return Err(());
     }
 
@@ -784,7 +783,8 @@ fn is_convertible(fourcc: u32) -> bool {
 }
 
 /// Convert one captured frame to tightly-packed top-down BGRA, honoring the
-/// device's row stride. Returns None for formats we cannot decode here.
+/// device's row stride. Returns None for formats we cannot decode here, and for
+/// an empty buffer.
 fn convert_to_bgra(
     fourcc: u32,
     src: &[u8],
@@ -792,7 +792,7 @@ fn convert_to_bgra(
     height: u32,
     bytesperline: usize,
 ) -> Option<Vec<u8>> {
-    // The probe call passes an empty slice purely to test format support.
+    // A buffer with no payload (bytesused 0) holds no frame to convert.
     if src.is_empty() {
         return None;
     }

@@ -85,6 +85,7 @@ const V4L2_CAP_DEVICE_CAPS: u32 = 0x8000_0000;
 const V4L2_BUF_TYPE_VIDEO_CAPTURE: u32 = 1;
 const V4L2_MEMORY_MMAP: u32 = 1;
 const V4L2_FIELD_NONE: u32 = 1;
+const V4L2_BUF_FLAG_ERROR: u32 = 0x0000_0040;
 
 const V4L2_FRMSIZE_TYPE_DISCRETE: u32 = 1;
 const V4L2_FRMIVAL_TYPE_DISCRETE: u32 = 1;
@@ -731,7 +732,8 @@ fn capture_loop(path: &CStr, sink: FrameSink, stop: &AtomicBool) -> Result<(), (
         }
 
         let index = buf.index as usize;
-        if index < buffers.len() {
+        // An ERROR buffer may hold a torn or partial frame; just requeue it.
+        if index < buffers.len() && buf.flags & V4L2_BUF_FLAG_ERROR == 0 {
             let mapped = &buffers[index];
             let used = (buf.bytesused as usize).min(mapped.length);
             let bytes = unsafe { std::slice::from_raw_parts(mapped.start, used) };

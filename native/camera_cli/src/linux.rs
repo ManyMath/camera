@@ -597,8 +597,13 @@ fn capture_loop(path: &CStr, sink: FrameSink, stop: &AtomicBool) -> Result<(), (
 
     let width = fmt.pix.width;
     let height = fmt.pix.height;
-    let bytesperline = fmt.pix.bytesperline.max(width) as usize;
     let pixfmt = fmt.pix.pixelformat;
+    // If the driver leaves bytesperline at 0, assume tightly packed rows.
+    let packed_row = match pixfmt {
+        V4L2_PIX_FMT_RGB24 | V4L2_PIX_FMT_BGR24 => width * 3,
+        _ => width * 2,
+    };
+    let bytesperline = fmt.pix.bytesperline.max(packed_row) as usize;
     // We can only deliver formats we know how to turn into BGRA. MJPEG and other
     // compressed/exotic formats are rejected rather than emitting garbage.
     if convert_to_bgra(pixfmt, &[], width, height, bytesperline).is_none()

@@ -20,8 +20,9 @@ use windows::Win32::Media::MediaFoundation::{
     MFCreateMediaType, MFCreateSourceReaderFromMediaSource, MFEnumDeviceSources, MFMediaType_Video,
     MFStartup, MFVideoFormat_RGB32, MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
     MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-    MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE,
-    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_VERSION,
+    MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, MF_MT_DEFAULT_STRIDE,
+    MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING,
+    MF_VERSION,
 };
 use windows::Win32::System::Com::{
     CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_MULTITHREADED,
@@ -130,10 +131,7 @@ fn enumerate_inner() -> Result<Vec<Device>> {
 }
 
 /// Read a string device attribute, returning None if it is absent.
-unsafe fn get_attr_string(
-    activate: &IMFActivate,
-    key: &windows::core::GUID,
-) -> Option<String> {
+unsafe fn get_attr_string(activate: &IMFActivate, key: &windows::core::GUID) -> Option<String> {
     let mut ptr = windows::core::PWSTR::null();
     let mut len = 0u32;
     activate.GetAllocatedString(key, &mut ptr, &mut len).ok()?;

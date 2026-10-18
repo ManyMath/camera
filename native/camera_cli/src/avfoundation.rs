@@ -405,8 +405,7 @@ unsafe fn orient_connection(output: &AVCaptureVideoDataOutput, device: &AVCaptur
             setVideoOrientation: AV_CAPTURE_VIDEO_ORIENTATION_PORTRAIT
         ];
     }
-    if device.position() == AVCaptureDevicePosition::Front
-        && connection.isVideoMirroringSupported()
+    if device.position() == AVCaptureDevicePosition::Front && connection.isVideoMirroringSupported()
     {
         connection.setAutomaticallyAdjustsVideoMirroring(false);
         connection.setVideoMirrored(true);

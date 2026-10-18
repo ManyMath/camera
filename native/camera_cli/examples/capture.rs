@@ -9,16 +9,17 @@
 
 use std::ffi::CStr;
 use std::io::Write;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use camera_cli::{
     camera_cli_close, camera_cli_enumerate, camera_cli_frame_free, camera_cli_open,
-    camera_cli_start_stream, camera_cli_stop_stream, camera_cli_string_free,
+    camera_cli_start_stream, camera_cli_stop_stream, camera_cli_string_free, STREAM_ENDED,
 };
 
 static FRAME_COUNT: AtomicI32 = AtomicI32::new(0);
+static ENDED: AtomicBool = AtomicBool::new(false);
 static LAST_FRAME: Mutex<Option<(Vec<u8>, i32, i32)>> = Mutex::new(None);
 
 extern "C" fn on_frame(
@@ -26,9 +27,13 @@ extern "C" fn on_frame(
     length: i32,
     width: i32,
     height: i32,
-    _pixel_format: i32,
+    pixel_format: i32,
     _timestamp_us: i64,
 ) {
+    if data.is_null() && pixel_format == STREAM_ENDED {
+        ENDED.store(true, Ordering::SeqCst);
+        return;
+    }
     FRAME_COUNT.fetch_add(1, Ordering::SeqCst);
     if !data.is_null() && length > 0 {
         let slice = unsafe { std::slice::from_raw_parts(data, length as usize) };
@@ -75,7 +80,10 @@ fn main() {
 
     // Wait up to 5 s for a handful of frames.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while FRAME_COUNT.load(Ordering::SeqCst) < 5 && Instant::now() < deadline {
+    while FRAME_COUNT.load(Ordering::SeqCst) < 5
+        && !ENDED.load(Ordering::SeqCst)
+        && Instant::now() < deadline
+    {
         std::thread::sleep(Duration::from_millis(50));
     }
 
@@ -84,6 +92,9 @@ fn main() {
 
     let count = FRAME_COUNT.load(Ordering::SeqCst);
     println!("received {count} frame(s)");
+    if ENDED.load(Ordering::SeqCst) {
+        eprintln!("capture ended early (device lost or failed to start)");
+    }
 
     if let Some((bytes, w, h)) = LAST_FRAME.lock().unwrap().take() {
         println!("last frame: {w}x{h}, {} bytes", bytes.len());

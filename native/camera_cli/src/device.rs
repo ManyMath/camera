@@ -3,13 +3,12 @@
 //! We hand-roll JSON to keep the crate dependency-free. The shape matches the
 //! Dart parser in native_backend_ffi.dart.
 
-#![allow(dead_code)] // Format wire-contract fields are not all emitted yet.
+#![allow(dead_code)] // Not every backend uses every type here.
 
 /// Pixel layout of captured frames. Order must match the Dart `PixelFormat`.
 ///
-/// Only `Bgra8888` is produced today (AVFoundation is configured to deliver
-/// BGRA); the rest are part of the wire contract with the Dart side for the
-/// other platforms/formats that land later.
+/// Every backend converts to, and lists, `Bgra8888` today; the rest are part of
+/// the wire contract with the Dart side for formats that land later.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub enum PixelFormat {

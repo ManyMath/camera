@@ -34,8 +34,8 @@ mod android;
 mod linux;
 
 mod device;
-// `Format` is only used by the macOS/iOS backend; other platforms report frame
-// dimensions per-frame instead of pre-listing formats.
+// `Format` is unused on Windows, which does not list formats yet (frames still
+// carry their own dimensions).
 #[allow(unused_imports)]
 pub(crate) use device::{Device, Format, PixelFormat};
 

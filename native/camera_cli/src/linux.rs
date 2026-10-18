@@ -562,9 +562,12 @@ impl FrameSource for V4l2Session {
         self.stop = stop.clone();
         let path = self.path.clone();
         self.thread = Some(std::thread::spawn(move || {
-            // Errors here just mean no frames are delivered; the consumer sees an
-            // empty stream rather than a crash.
             let _ = capture_loop(&path, sink, &stop);
+            // Leaving without a stop request means setup failed or the device
+            // went away; tell the consumer rather than go quiet.
+            if !stop.load(Ordering::SeqCst) {
+                sink.end();
+            }
         }));
     }
 

@@ -1,4 +1,5 @@
 
 .dart_tool/
-native/camera_cli/target/
+packages/camera_flutter/rust/target/
 build/
+__pycache__/

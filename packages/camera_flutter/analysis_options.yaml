@@ -3,3 +3,9 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - cargokit/**
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**

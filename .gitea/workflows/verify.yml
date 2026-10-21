@@ -1,0 +1,39 @@
+name: Private camera verification
+on:
+  push:
+    branches: [main, 'maintenance/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: manymath-maintenance-linux-x64
+    steps:
+      - name: Require the private primary forge
+        env:
+          PRIMARY_SERVER: ${{ github.server_url }}
+        run: test "$PRIMARY_SERVER" = 'https://git.manymath.com'
+      - uses: actions/checkout@v4
+      - name: Record provisioned toolchains
+        run: |
+          python3 --version
+          dart --version
+          flutter --version
+          cargo --version
+      - name: Payload regression fixtures
+        run: python3 -m unittest discover -s tool/tests -v
+      - name: Source tests and analysis
+        run: |
+          flutter pub get
+          dart analyze packages/camera_dart
+          dart test packages/camera_dart
+          flutter test packages/camera_flutter/test
+          cargo test --locked --manifest-path packages/camera_flutter/rust/Cargo.toml
+      - name: Actual pub archives and native consumers
+        run: |
+          evidence_root="$(mktemp -d)"
+          python3 tool/native_payload.py --config tool/payload.json --mode candidate --output "$evidence_root/candidate"
+          python3 tool/native_payload.py --config tool/payload.json --mode hosted --output "$evidence_root/hosted"
+          cat "$evidence_root/candidate/evidence.json" "$evidence_root/hosted/evidence.json"
+          echo "Private candidate archives and logs retained on runner at $evidence_root"

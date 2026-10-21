@@ -1,6 +1,6 @@
 // A stand-in for the camera_cli library, built by ffi_backend_test.dart.
 //
-// Implements the C ABI from native/camera_cli/src/lib.rs with two fake
+// Implements the C ABI from packages/camera_flutter/rust/src/lib.rs with two fake
 // devices. Each started stream runs a thread that emits a tiny BGRA frame
 // every few milliseconds. The fake_* functions let the test inject failures.
 

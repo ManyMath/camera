@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'camera_flutter'
-  s.version          = '0.1.0'
+  s.version          = '0.0.2'
   s.summary          = 'Flutter integration for camera_dart.'
   s.description      = <<-DESC
 Cross-platform camera access for Flutter with no system dependencies.
@@ -20,7 +20,7 @@ Cross-platform camera access for Flutter with no system dependencies.
   # force-link it into the plugin framework.
   s.script_phase = {
     :name => 'Build camera_cli',
-    :script => 'sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../../../native/camera_cli camera_cli',
+    :script => 'sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust camera_cli',
     :execution_position => :before_compile,
     :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
     :output_files => ['${BUILT_PRODUCTS_DIR}/libcamera_cli.a'],

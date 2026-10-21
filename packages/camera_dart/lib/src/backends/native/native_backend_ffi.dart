@@ -78,7 +78,7 @@ class NativeLibrary {
     var dir = Directory.current.absolute;
     for (var i = 0; i < 6; i++) {
       for (final profile in ['release', 'debug']) {
-        yield '${dir.path}/native/camera_cli/target/$profile/$_fileName';
+        yield '${dir.path}/packages/camera_flutter/rust/target/$profile/$_fileName';
       }
       final parent = dir.parent;
       if (parent.path == dir.path) break;

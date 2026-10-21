@@ -10,7 +10,7 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cargokit/cmake/cargokit.cmake")
 
-apply_cargokit(${PROJECT_NAME} ../../../native/camera_cli camera_cli camera_cli_enumerate)
+apply_cargokit(${PROJECT_NAME} ../rust camera_cli camera_cli_enumerate)
 
 set(camera_flutter_bundled_libraries
   "${${PROJECT_NAME}_cargokit_lib}"

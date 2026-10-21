@@ -47,13 +47,13 @@ android {
     }
 }
 
-// Build the camera_cli Rust crate via cargokit. The crate lives at the repo
-// root and is shared with the pure-Dart camera_dart package; cargokit drops
+// Build the camera_cli Rust crate via cargokit. The crate ships inside the plugin
+// package, including in pub.dev archives; cargokit drops
 // the per-ABI libcamera_cli.so into jniLibs so it is packaged in the APK
 // and resolvable by DynamicLibrary.open('libcamera_cli.so').
 apply from: "../cargokit/gradle/plugin.gradle"
 
 cargokit {
-    manifestDir = "../../../native/camera_cli"
+    manifestDir = "../rust"
     libname = "camera_cli"
 }

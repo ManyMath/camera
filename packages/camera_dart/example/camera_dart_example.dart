@@ -3,7 +3,7 @@
 // Pure-Dart CLI usage of camera_dart over the FFI backend. Build the native
 // library first (from the repo root):
 //
-//   cargo build --release --manifest-path native/camera_cli/Cargo.toml
+//   cargo build --release --manifest-path packages/camera_flutter/rust/Cargo.toml
 //
 // then run:
 //

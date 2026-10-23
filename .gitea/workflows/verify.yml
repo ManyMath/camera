@@ -5,6 +5,8 @@ on:
   pull_request:
   workflow_dispatch:
 env:
+  RUSTUP_TOOLCHAIN: "1.89.0"
+  CARGO_HOME: ${{ runner.temp }}/camera-cargo-${{ github.run_id }}-${{ github.job }}
   DASH__SUPPRESS_ANALYTICS: "true"
   FLUTTER_SUPPRESS_ANALYTICS: "true"
 permissions:

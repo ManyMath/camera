@@ -18,9 +18,15 @@ import tomllib
 
 
 def run(args, cwd, log, env=None):
-    result = subprocess.run(args, cwd=cwd, env=env, text=True, input="\n",
+    # CreateProcess does not apply PATHEXT like a Windows shell. Resolve the
+    # SDK's dart.bat/flutter.bat without relying on shell executable search.
+    executable = shutil.which(args[0], path=(env or os.environ).get("PATH"))
+    if executable is None:
+        raise RuntimeError(f"Required executable not found: {args[0]}")
+    result = subprocess.run([executable, *args[1:]], cwd=cwd, env=env,
+                            encoding="utf-8", errors="replace", input="\n",
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    Path(log).write_text(result.stdout)
+    Path(log).write_text(result.stdout, encoding="utf-8")
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {args}; see {log}")
     return result.stdout

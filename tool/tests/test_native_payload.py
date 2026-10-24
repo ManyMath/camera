@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from subprocess import CompletedProcess
 
 spec = importlib.util.spec_from_file_location("native_payload", Path(__file__).parents[1] / "native_payload.py")
 gate = importlib.util.module_from_spec(spec)
@@ -10,6 +12,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class PayloadTests(unittest.TestCase):
+    def test_resolves_sdk_batch_entrypoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(gate.shutil, "which", return_value="C:/SDK/bin/dart.bat"), patch.object(gate.subprocess, "run", return_value=CompletedProcess([], 0, "ok")) as invoke:
+                gate.run(["dart", "--version"], tmp, Path(tmp) / "version.log")
+            self.assertEqual(invoke.call_args.args[0], ["C:/SDK/bin/dart.bat", "--version"])
+            self.assertFalse(invoke.call_args.kwargs.get("shell", False))
+
     def test_missing_native_source(self):
         with self.assertRaisesRegex(ValueError, "Missing published source"):
             gate.inspect_package(FIXTURES / "missing-source", {"required": ["rust/Cargo.toml"]})

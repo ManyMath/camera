@@ -23,10 +23,14 @@ No credentials or signing keys are required.
 `pub_semver` against the original archived manifests. The candidate solver result is explicit and independent of source overrides. Only after that check does the fresh
 Flutter consumer override sibling sources with extracted candidate packages.
 `hosted` uses the Flutter archive's declared hosted dependencies without
-sibling overrides. Both modes build a fresh Flutter application. Linux also
-runs a separate Dart consumer using the newly bundled native library and
-checks backend selection and device enumeration. This verifies native loading
-and minimal behavior; it does not prove physical camera capture.
+sibling overrides. Both modes build a fresh Flutter application. Linux and
+Windows also run a separate Dart consumer that explicitly opens the newly
+bundled native library by path and checks backend selection and device
+enumeration; the library path and SHA256 are recorded. This verifies native
+loading and minimal behavior; it does not prove physical camera capture.
+
+`--to-archive` writes locally but still runs pub validation, which reads the
+hosted server's version listing for the package. It never uploads.
 
 Local path consumption needs `resolution: workspace` removed from extracted
 pubspec files, because hosted packages do not participate in the source
@@ -35,8 +39,11 @@ pubspecs and lockfiles record exactly what was tested.
 
 `--target` accepts Flutter build targets. The default is `linux`; use `apk`
 for Android (the generated project needs `android` scaffolding), `ios`,
-`macos`, or `windows` on suitable hosts. Only Linux currently has an automated
+`macos`, or `windows` on suitable hosts. Linux and Windows have an automated
 runtime smoke. Other native builds need corresponding runtime/device checks.
+
+Cargokit builds consumers with `rustup run stable`, so the consumer's native
+library uses the host's `stable` toolchain, not `RUSTUP_TOOLCHAIN`.
 
 Fixtures retain regressions for missing native sources, escaping Cargo path
 dependencies, incorrect Flutter CMake target names, archive path traversal,
@@ -54,3 +61,8 @@ before checkout. It performs no package upload, release creation, signing, or
 public workflow execution. Candidate archives/logs remain on the private runner;
 the run log records their directory and checksums. Other advertised native
 platforms require corresponding runners and runtime checks before release.
+
+The Windows automation explicitly opens and hashes the bundle path but does not
+independently inspect the module selected by every backend symbol lookup. The
+fleet validation separately inspected the loaded module path; neither check
+proves physical capture or permissions behavior.

@@ -18,9 +18,15 @@ import tomllib
 
 
 def run(args, cwd, log, env=None):
+    env = dict(os.environ if env is None else env)
+    if os.name == "nt":
+        # rustup proxies may be user-created symlinks, which processes that
+        # enforce redirection trust refuse to start (os error 448). Cargokit's
+        # `rustup run` then puts the toolchain's real rustc first on PATH.
+        env.setdefault("RUSTUP_WINDOWS_PATH_ADD_BIN", "1")
     # CreateProcess does not apply PATHEXT like a Windows shell. Resolve the
     # SDK's dart.bat/flutter.bat without relying on shell executable search.
-    executable = shutil.which(args[0], path=(env or os.environ).get("PATH"))
+    executable = shutil.which(args[0], path=env.get("PATH"))
     if executable is None:
         raise RuntimeError(f"Required executable not found: {args[0]}")
     result = subprocess.run([executable, *args[1:]], cwd=cwd, env=env,
@@ -70,6 +76,13 @@ def inspect_package(root, spec):
                 for child in value:
                     visit(child)
         visit(data)
+    for relative in spec.get("provenance", []):
+        manifest = inside(root / relative, root)
+        data = json.loads(manifest.read_text())
+        for name, expected in data["files_sha256"].items():
+            source = inside(manifest.parent / name, root)
+            if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                raise ValueError(f"Stale staged source: {name}")
     for relative, fragment in spec.get("contracts", {}).items():
         path = inside(root / relative, root)
         if not path.is_file() or fragment not in path.read_text():
@@ -127,6 +140,17 @@ void main(List<String> args) {
     run(["dart", "run", "check.dart"] + [str(output / "packages" / item["name"] / "pubspec.yaml") for item in packages], check, output / "candidate-constraints.log")
 
 
+def runtime_library(config, target):
+    """Bundled native library for a Flutter build target, or None without a smoke.
+
+    `bundle_dir` is the library's directory suffix under build/<target>. Older
+    configs name only the Linux library.
+    """
+    libraries = config.get("runtime_libraries") or {
+        "linux": {"name": config["library_name"], "bundle_dir": "bundle/lib"}}
+    return libraries.get(target)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -170,6 +194,9 @@ def main():
     flutter_spec = config["flutter_package"]
     consumer = output / "flutter-consumer"
     run(["flutter", "create", "--no-pub", "--platforms=" + ("android" if args.target in {"apk", "appbundle"} else args.target), "--project-name=payload_consumer", str(consumer)], output, output / "flutter-create.log")
+    # Consumer-local options override ancestor configuration: prove source builds.
+    (consumer / "cargokit_options.yaml").write_text(
+        "use_precompiled_binaries: false\nuse_local_precompiled_binaries: false\ncache_local_builds: false\n")
     manifest = consumer / "pubspec.yaml"
     text = manifest.read_text().replace("dependencies:\n", f"dependencies:\n  {flutter_spec}:\n    path: ../packages/{flutter_spec}\n", 1)
     if args.mode == "candidate":
@@ -187,11 +214,20 @@ def main():
     report["flutter_build"] = "passed"
     # Per-repository smoke program explicitly loads the native library and
     # tests minimal behavior without requiring a physical capture device.
-    if args.target == "linux":
-        matches = list((consumer / "build/linux").rglob(config["library_name"]))
-        bundled = [p for p in matches if "/bundle/lib/" in str(p)]
+    library = runtime_library(config, args.target)
+    if library is not None:
+        # Compare path parts, not strings: Windows paths use backslashes.
+        bundle_dir = tuple(library["bundle_dir"].split("/"))
+        matches = list((consumer / "build" / args.target).rglob(library["name"]))
+        bundled = [p for p in matches if p.parent.parts[-len(bundle_dir):] == bundle_dir]
         if len(bundled) != 1:
             raise RuntimeError(f"Expected exactly one bundled native library, found {bundled}")
+        # The loader falls back to the bare library name; a copy on PATH could
+        # then pass the smoke without loading the bundled file.
+        if os.name == "nt" and shutil.which(library["name"], path=os.environ.get("PATH")):
+            raise RuntimeError(f"{library['name']} is on PATH; the smoke could load it instead of the bundle")
+        report["native_library"] = {"path": bundled[0].relative_to(consumer).as_posix(),
+                                    "sha256": hashlib.sha256(bundled[0].read_bytes()).hexdigest()}
         cli = output / "dart-consumer"
         cli.mkdir()
         dart_package = config["dart_package"]

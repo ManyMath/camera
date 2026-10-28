@@ -1,14 +1,35 @@
 {
   "dart_sdk": "3.13.2",
   "packages": [
-    {"name": "camera_dart", "path": "packages/camera_dart", "required": ["LICENSE", "lib/camera_dart.dart"]},
-    {"name": "camera_flutter", "path": "packages/camera_flutter", "required": ["rust/Cargo.toml", "rust/src/lib.rs", "rust/LICENSE", "cargokit/cmake/cargokit.cmake"], "contracts": {
-      "linux/CMakeLists.txt": "apply_cargokit(${PROJECT_NAME} ../rust camera_cli",
-      "windows/CMakeLists.txt": "apply_cargokit(${PROJECT_NAME} ../rust camera_cli",
-      "android/build.gradle": "manifestDir = \"../rust\"",
-      "ios/camera_flutter.podspec": "build_pod.sh\" ../rust camera_cli",
-      "macos/camera_flutter.podspec": "build_pod.sh\" ../rust camera_cli"
-    }}
+    {
+      "name": "camera_dart",
+      "path": "packages/camera_dart",
+      "required": [
+        "LICENSE",
+        "lib/camera_dart.dart"
+      ]
+    },
+    {
+      "name": "camera_flutter",
+      "path": "packages/camera_flutter",
+      "required": [
+        "rust/Cargo.toml",
+        "rust/src/lib.rs",
+        "rust/LICENSE",
+        "cargokit/cmake/cargokit.cmake",
+        "cargokit/VENDOR_PROVENANCE.json"
+      ],
+      "contracts": {
+        "linux/CMakeLists.txt": "apply_cargokit(${PROJECT_NAME} ../rust camera_cli",
+        "windows/CMakeLists.txt": "apply_cargokit(${PROJECT_NAME} ../rust camera_cli",
+        "android/build.gradle": "manifestDir = \"../rust\"",
+        "ios/camera_flutter.podspec": "build_pod.sh\" ../rust camera_cli",
+        "macos/camera_flutter.podspec": "build_pod.sh\" ../rust camera_cli"
+      },
+      "provenance": [
+        "cargokit/VENDOR_PROVENANCE.json"
+      ]
+    }
   ],
   "flutter_package": "camera_flutter",
   "dart_package": "camera_dart",
@@ -16,5 +37,15 @@
   "library_name": "libcamera_cli.so",
   "library_environment": "CAMERA_CLI_LIBRARY",
   "flutter_main": "import 'package:flutter/material.dart';\nimport 'package:camera_flutter/camera_flutter.dart';\nFuture<void> main() async { WidgetsFlutterBinding.ensureInitialized(); final backend = await CameraControlFlutter.ensureInitialized(); runApp(MaterialApp(home: Text(backend))); }\n",
-  "dart_main": "import 'package:camera_dart/camera_dart.dart';\nFuture<void> main() async { CameraControl.ensureInitialized(); if (CameraBackendRegistry.instance.selected.name != 'ffi') { throw StateError('native camera backend did not load'); } final cameras = await CameraControl.enumerate(); print('FFI loaded; enumerated ${cameras.length} camera devices'); await CameraBackendRegistry.instance.selected.dispose(); }\n"
+  "dart_main": "import 'dart:ffi';\nimport 'dart:io';\nimport 'package:camera_dart/camera_dart.dart';\nFuture<void> main() async { DynamicLibrary.open(Platform.environment['CAMERA_CLI_LIBRARY']!); CameraControl.ensureInitialized(); if (CameraBackendRegistry.instance.selected.name != 'ffi') { throw StateError('native camera backend did not load'); } final cameras = await CameraControl.enumerate(); print('FFI loaded; enumerated ${cameras.length} camera devices'); await CameraBackendRegistry.instance.selected.dispose(); }\n",
+  "runtime_libraries": {
+    "linux": {
+      "name": "libcamera_cli.so",
+      "bundle_dir": "bundle/lib"
+    },
+    "windows": {
+      "name": "camera_cli.dll",
+      "bundle_dir": "runner/Debug"
+    }
+  }
 }

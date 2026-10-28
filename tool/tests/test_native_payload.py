@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from subprocess import CompletedProcess
+from types import SimpleNamespace
 
 spec = importlib.util.spec_from_file_location("native_payload", Path(__file__).parents[1] / "native_payload.py")
 gate = importlib.util.module_from_spec(spec)
@@ -18,6 +19,43 @@ class PayloadTests(unittest.TestCase):
                 gate.run(["dart", "--version"], tmp, Path(tmp) / "version.log")
             self.assertEqual(invoke.call_args.args[0], ["C:/SDK/bin/dart.bat", "--version"])
             self.assertFalse(invoke.call_args.kwargs.get("shell", False))
+
+    def test_modified_staged_source_is_rejected(self):
+        import json
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source.rs'
+            source.write_text('original')
+            (root / 'provenance.json').write_text(json.dumps({'files_sha256': {'source.rs': hashlib.sha256(source.read_bytes()).hexdigest()}}))
+            gate.inspect_package(root, {'provenance': ['provenance.json']})
+            source.write_text('stale edit')
+            with self.assertRaisesRegex(ValueError, 'Stale staged source'):
+                gate.inspect_package(root, {'provenance': ['provenance.json']})
+
+
+    def test_windows_children_use_real_toolchain_binaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "version.log"
+            with patch.object(gate, "os", SimpleNamespace(name="nt", environ=gate.os.environ)), patch.object(gate.shutil, "which", return_value="C:/SDK/bin/dart.bat"), patch.object(gate.subprocess, "run", return_value=CompletedProcess([], 0, "ok")) as invoke:
+                gate.run(["dart", "--version"], tmp, log, {"PATH": "C:/SDK/bin"})
+            self.assertEqual(invoke.call_args.kwargs["env"]["RUSTUP_WINDOWS_PATH_ADD_BIN"], "1")
+
+    def test_explicit_empty_child_environment_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(gate.shutil, "which", return_value="/sdk/dart"), patch.object(gate.subprocess, "run", return_value=CompletedProcess([], 0, "ok")) as invoke:
+                gate.run(["dart", "--version"], tmp, Path(tmp) / "version.log", {})
+            self.assertNotIn("HOME", invoke.call_args.kwargs["env"])
+
+    def test_runtime_library_keeps_legacy_linux_config(self):
+        self.assertEqual(gate.runtime_library({"library_name": "libdemo.so"}, "linux"),
+                         {"name": "libdemo.so", "bundle_dir": "bundle/lib"})
+        self.assertIsNone(gate.runtime_library({"library_name": "libdemo.so"}, "windows"))
+
+    def test_runtime_library_per_target(self):
+        config = {"runtime_libraries": {"windows": {"name": "demo.dll", "bundle_dir": "runner/Debug"}}}
+        self.assertEqual(gate.runtime_library(config, "windows")["name"], "demo.dll")
+        self.assertIsNone(gate.runtime_library(config, "apk"))
 
     def test_missing_native_source(self):
         with self.assertRaisesRegex(ValueError, "Missing published source"):
@@ -56,10 +94,15 @@ class PayloadTests(unittest.TestCase):
             self.assertIn("does not satisfy declared constraint", (root / "candidate-constraints.log").read_text())
 
     def test_pubignore_can_include_gitignored_generated_source(self):
+        import json
         import subprocess
         import tarfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            pin = json.loads((Path(__file__).parents[1] / "payload.json").read_text())["dart_sdk"]
+            version = gate.run(["dart", "--version"], tmp, root / "version.log")
+            if f"Dart SDK version: {pin} " not in version:
+                self.skipTest(f"requires pinned Dart {pin}: {version.strip()}")
             repo = root / "repo"
             repo.mkdir()
             subprocess.run(["git", "init", "-q", str(repo)], check=True)

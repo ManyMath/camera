@@ -20,17 +20,30 @@ jobs:
           PRIMARY_SERVER: ${{ github.server_url }}
         run: test "$PRIMARY_SERVER" = 'https://git.manymath.com'
       - uses: actions/checkout@v4
+      - name: Rebuild exact tooling identity from private fork
+        env:
+          GIT_SSH_COMMAND: /usr/bin/ssh -o Hostname=195.201.108.115 -p 2222 -l git -o ProxyCommand=none -o ProxyJump=none
+          GIT_SSH_VARIANT: ssh
+        run: |
+          source_root="$(mktemp -d)"
+          trap 'rm -rf "$source_root"' EXIT
+          git -c core.hooksPath=/dev/null clone --quiet --no-checkout ssh://git@git.manymath.com:2222/sneurlax/cargokit.git "$source_root/fork"
+          python3 tool/cargokit_sync.py --manifest tool/cargokit/manifest.json --source "$source_root/fork" --check packages/camera_flutter/cargokit
       - name: Record provisioned toolchains
         run: |
           python3 --version
           dart --version
           flutter --version
           cargo --version
+          # Cargokit selects stable explicitly for native consumers.
+          rustup run stable rustc --version --verbose
       - name: Payload regression fixtures
         run: python3 -m unittest discover -s tool/tests -v
       - name: Source tests and analysis
         run: |
           flutter pub get
+          # Archive evidence must refer to the immutable checked-out source.
+          git diff --exit-code
           dart analyze packages/camera_dart
           dart test packages/camera_dart
           flutter test packages/camera_flutter/test

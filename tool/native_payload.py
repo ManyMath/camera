@@ -140,6 +140,11 @@ void main(List<String> args) {
     run(["dart", "run", "check.dart"] + [str(output / "packages" / item["name"] / "pubspec.yaml") for item in packages], check, output / "candidate-constraints.log")
 
 
+def library_on_path(name, path):
+    """Find same-named libraries too: DLLs are not executable PATHEXT entries."""
+    return shutil.which(name, mode=os.F_OK, path=path)
+
+
 def runtime_library(config, target):
     """Bundled native library for a Flutter build target, or None without a smoke.
 
@@ -167,6 +172,10 @@ def main():
     version = run(["dart", "--version"], repo, output / "dart-version.log")
     if f"Dart SDK version: {config['dart_sdk']} " not in version:
         raise ValueError(f"Unsupported Dart SDK for hidden archive flag: {version.strip()}")
+    build_env = None
+    if args.target == "apk":
+        import android_payload as android_gate
+        build_env = android_gate.prepare(config, repo, output, run)
     report = {"mode": args.mode, "target": args.target, "dart": version.strip(),
               "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo).decode().strip(),
               "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo)),
@@ -210,7 +219,11 @@ def main():
     manifest.write_text(text)
     (consumer / "lib/main.dart").write_text(config["flutter_main"])
     run(["flutter", "pub", "get"], consumer, output / "flutter-get.log")
-    run(["flutter", "build", args.target, "--debug"] + (["--no-codesign"] if args.target == "ios" else []), consumer, output / "flutter-build.log")
+    if args.target == "apk":
+        android_gate.configure_consumer(consumer, config, build_env, output, run)
+    run(["flutter", "build", args.target, "--debug"] + (["--no-codesign"] if args.target == "ios" else []), consumer, output / "flutter-build.log", env=build_env)
+    if args.target == "apk":
+        report["android_artifact"] = android_gate.artifact(consumer, config)
     report["flutter_build"] = "passed"
     # Per-repository smoke program explicitly loads the native library and
     # tests minimal behavior without requiring a physical capture device.
@@ -224,7 +237,7 @@ def main():
             raise RuntimeError(f"Expected exactly one bundled native library, found {bundled}")
         # The loader falls back to the bare library name; a copy on PATH could
         # then pass the smoke without loading the bundled file.
-        if os.name == "nt" and shutil.which(library["name"], path=os.environ.get("PATH")):
+        if os.name == "nt" and library_on_path(library["name"], os.environ.get("PATH")):
             raise RuntimeError(f"{library['name']} is on PATH; the smoke could load it instead of the bundle")
         report["native_library"] = {"path": bundled[0].relative_to(consumer).as_posix(),
                                     "sha256": hashlib.sha256(bundled[0].read_bytes()).hexdigest()}

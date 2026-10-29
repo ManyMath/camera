@@ -13,6 +13,12 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class PayloadTests(unittest.TestCase):
+    def test_same_named_library_on_path_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "demo.dll").write_bytes(b"dll")
+            self.assertEqual(Path(gate.library_on_path("demo.dll", tmp)), Path(tmp) / "demo.dll")
+            self.assertIsNone(gate.library_on_path("other.dll", tmp))
+
     def test_resolves_sdk_batch_entrypoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(gate.shutil, "which", return_value="C:/SDK/bin/dart.bat"), patch.object(gate.subprocess, "run", return_value=CompletedProcess([], 0, "ok")) as invoke:

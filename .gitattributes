@@ -1,0 +1,3 @@
+# Preserve the exact bytes recorded by the Cargokit export recipe.
+packages/camera_flutter/cargokit/** -text
+tool/cargokit/** -text

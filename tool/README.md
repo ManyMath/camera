@@ -66,3 +66,16 @@ The Windows automation explicitly opens and hashes the bundle path but does not
 independently inspect the module selected by every backend symbol lookup. The
 fleet validation separately inspected the loaded module path; neither check
 proves physical capture or permissions behavior.
+
+Android APK consumers use the checked-in target map and the installed stable
+Rust toolchain; its actual compiler identity is recorded. Set ANDROID_SDK_ROOT
+to an SDK with platform36, build-tools36.0.0 and NDK28.2.13676358 already installed
+(Glow also needs CMake3.22.1). Run the usual gate with --target apk. The gate
+fails before building when tools/targets are absent, disables SDK/JDK downloads
+in the fresh consumer, and checks Gradle's actual selected NDK. Child builds
+receive the selected Rust toolchain without changing user settings. Gradle and
+Android homes default to task-local output directories; explicitly supplied
+task-owned homes may be reused. Evidence binds the APK and every expected
+native ABI to SHA256. This is build/packaging validation, not device behavior.
+
+The private `android-payload.yml` lane runs on the dedicated maintenance branch or manual dispatch. It uses isolated temporary dependency/build homes and retains archive evidence and the APK, then removes its own intermediate build/cache directories. Linux CI remains the required default lane; Android is an additional build qualification, not a device test.

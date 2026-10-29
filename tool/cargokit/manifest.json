@@ -59,7 +59,7 @@
     "example/example_full/rust_strings/Cargo.toml": "96bf1bdb256e866901e7e8b753c11c7b0175c51f7481889e209545b463e47a28",
     "example/example_full/rust_strings/src/lib.rs": "737cec1c3a7ca929922d3633449966a9c17248b5ef6d8d713dc803710f563488",
     "example/example_full/test/example_full_test.dart": "7a8b8c671a070cf62732b497225f9aa33092584829d1fe2fce6f15ad5979c979",
-    "gradle/plugin.gradle": "c349bd68502ea001a39c77859a0c75d0fc6894d5cfba2f0fcd25c08589ac3287",
+    "gradle/plugin.gradle": "a62e1ed95a3d57403b5a0bc177335dc229a2cadb3d354c3cc3d6257d61342338",
     "run_build_tool.cmd": "52c0a2f95055e2b275d996af807c96f4b0cf73f99e153b0c5ccd3e1779f667db",
     "run_build_tool.sh": "6f71a2a6d05796489d40516e474d023e80a004e58e8bfdcdd7c033e4ebaf0dee"
   },
@@ -322,6 +322,11 @@
       "description": "Preserve Flutter symlink path resolution and Windows PowerShell 5 compatibility.",
       "file": "patches/01-windows-symlink-paths.patch",
       "sha256": "967e5de5faadf30c737aaeca74df7a88def5bdade8a33d2df29d7c943370639c"
+    },
+    {
+      "description": "Use injected ExecOperations for Gradle 9 Android builds; preserve command arguments and environment.",
+      "file": "patches/02-gradle-exec-operations.patch",
+      "sha256": "4c50b38a15545d37118103edaa29f77334106e7a6eca903a506e6ff7ed116456"
     },
     {
       "description": "Suppress the complete caller environment during Apple builds.",

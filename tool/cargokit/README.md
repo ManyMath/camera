@@ -42,3 +42,6 @@ This initial rollout preserves existing build-tool source bytes. Declared local 
 
 - Preserve Flutter symlink path resolution and Windows PowerShell 5 compatibility.
 - Suppress the complete caller environment during Apple builds.
+
+The Android follow-up adds the declared Gradle 9 ExecOperations patch after an
+actual pub-archive consumer reproduced the removed Project.exec failure.
